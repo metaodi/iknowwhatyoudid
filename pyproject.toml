@@ -1,0 +1,7 @@
+[project]
+name = "iknowwhatyoudid"
+version = "0.1.0"
+description = "A local tool to get information about how you spend your days"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
