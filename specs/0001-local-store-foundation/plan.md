@@ -12,8 +12,8 @@ derived attributions, and user corrections separately discardable, and surviving
 and a full rebuild without losing the one thing that cannot be regenerated — the user's corrections.
 
 **The engine is SQLite**, which the constitution requires this plan to decide once for the whole project.
-It is in the standard library, so the feature ships with zero runtime dependencies; its file format has a
-stability guarantee measured in decades, which matters for a store meant to accumulate years of records;
+It is in the standard library, so the store itself adds no dependency; its file format has a stability
+guarantee measured in decades, which matters for a store meant to accumulate years of records;
 and every durability requirement in the spec maps onto a verified SQLite primitive rather than onto code
 we would have to write. DuckDB's analytical advantage is real but arrives later, in the dashboard — and
 DuckDB can read SQLite files directly, so choosing SQLite does not foreclose it.
@@ -30,9 +30,11 @@ without storing a flag that would go stale.
 **Language/Version**: Python 3.12 (`requires-python = ">=3.12"`, `.python-version` 3.12). The ambient
 interpreter is 3.11.5; `uv` provisions 3.12.11.
 
-**Primary Dependencies**: None at runtime. Standard library only — `sqlite3`, `hashlib`, `json`,
-`logging` (with `RotatingFileHandler`), `datetime`, `pathlib`, `argparse`, `ctypes` (Windows ACL read),
-`subprocess` (best-effort disk-encryption probe). Development-only: `pytest`, `mypy`.
+**Primary Dependencies**: One, and it carries no code — `tzdata`, on Windows only, where the platform
+ships no IANA time zone database (research R13). Everything else is standard library: `sqlite3`,
+`hashlib`, `json`, `logging` (with `RotatingFileHandler`), `datetime`, `pathlib`, `argparse`, `ctypes`
+(Windows ACL read), `subprocess` (best-effort disk-encryption probe).
+Development-only: `pytest`, `mypy`.
 
 **Storage**: **SQLite**, single file, in the tool's own data directory. Verified available features on
 this machine (SQLite 3.42.0): WAL, `STRICT` tables, generated columns, JSON1, `RETURNING`, upsert,
@@ -83,7 +85,7 @@ across storage, records, corrections, protection probes, logging, and CLI.
 | Database file in the tool's own data directory | Yes (FR-001), with a documented user override (FR-004) |
 | Common connector interface | Not this feature. `0002` owns it; this feature implements the `SourceStateStore` port `0002` defined |
 | Credentials never in the repository, the store, or logs | Yes (FR-024, FR-041). No credential is handled at all here |
-| Standard library default; every dependency justified | **Zero runtime dependencies.** Dev-only `pytest` and `mypy`, justified in [research.md](./research.md) R12 |
+| Standard library default; every dependency justified | One runtime dependency, `tzdata` on Windows, justified in R13. Dev-only `pytest` and `mypy`, in R12 |
 | Simplest approach first; no abstraction for a single caller | No new ports introduced. The one interface implemented — `SourceStateStore` — was defined by `0002`, so this feature is its second implementation, not a speculative one |
 
 **Gate result: PASS.** No violations, so Complexity Tracking is empty and omitted.
@@ -175,19 +177,20 @@ reviewer can check a requirement group against one package.
 is needed by `0002` for the configuration and credentials files, and duplicating a security check is how
 the two copies drift apart.
 
-### Correction to feature 0002's plan
+### Correction to feature 0002's plan — applied
 
 `0002` was planned before this feature and assumed it would create `errors.py`, `cli/main.py`,
-`cli/render.py`, and its own `config/permissions.py`. Since `0001` is built first, **those move here**, and
-`0002` extends them instead of creating them. Concretely, `0002`'s task list needs:
+`cli/render.py`, and its own `config/permissions.py`. Since `0001` was built first, **those live here**,
+and `0002` extends them. The corrections have been made in `0002`'s own artifacts:
 
-- T001–T005 reduced to extending an existing package rather than creating it
-- T019, T020 (render chokepoint, CLI skeleton) become extensions of `cli/render.py` and `cli/main.py`
-- T058, T059, T060 (permission checks) replaced by a call into `protection/permissions.py`
-- `contracts/source-state.md`'s "does not exist yet" caveat and `0002`'s `persistence: in_memory_only`
-  notice (T051) removed once this feature lands
+- T001, T002, T005 now extend the existing package rather than create it
+- T019, T020 extend `cli/render.py` and `cli/main.py`
+- T058–T060 call `protection/permissions.py` instead of reimplementing the check
+- T044 uses `SqliteSourceStateStore`; T051 became a durability test, and the
+  `persistence: in_memory_only` notice is gone from the payload and both contracts
+- `0002` gained T078 and T079 to thread `RunMode` through, which its `SourceReader` did not carry
 
-This is recorded here rather than silently left for whoever hits the collision.
+Recorded here rather than silently left for whoever hit the collision.
 
 ## Post-Design Constitution Re-Check
 

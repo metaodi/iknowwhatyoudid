@@ -362,6 +362,30 @@ package ships to the user.
 
 ---
 
+## R13. `tzdata` on Windows — a runtime dependency
+
+**Decision**: `dependencies = ["tzdata; sys_platform == 'win32'"]`.
+
+**Rationale**: **verified during implementation** — Windows ships no system IANA time zone database, so
+`zoneinfo.ZoneInfo("Europe/Zurich")` raises `ZoneInfoNotFoundError`. FR-007 requires the zone name to be
+recoverable, and the zone name is the *only* thing that resolves a moment inside a daylight-saving
+repeated hour — an offset cannot. On the project's primary platform this is a correctness requirement,
+not a convenience. The package contains data, no code, and is not installed on Linux or macOS.
+
+**Alternatives considered**:
+
+- **Degrade silently to the stored UTC offset.** The code already falls back this way, so the store keeps
+  working — but the DST case FR-007 exists for would fail on Windows and nowhere else, which is the worst
+  shape of bug: platform-specific, silent, and in the timestamps a timesheet is computed from.
+- **Store the offset only and drop zone names.** Rejected: it fails FR-007 outright.
+- **Vendor a minimal tz database.** Rejected: maintaining a copy of data that changes several times a
+  year, to avoid a dependency that exists precisely to distribute it.
+
+**Consequence**: the "zero runtime dependencies" claim is retired. Per the constitution, a pull request
+introducing this must call out the new runtime dependency explicitly.
+
+---
+
 ## Open items carried into implementation
 
 None blocking. Two consequences recorded so they are not rediscovered:

@@ -3,9 +3,7 @@
 Feature `0002-configurable-sources` was planned before this one and depends on the store through a narrow
 four-operation port, defined in
 [`specs/0002-configurable-sources/contracts/source-state.md`](../../0002-configurable-sources/contracts/source-state.md).
-It currently runs against an in-memory implementation and reports `persistence: in_memory_only`.
-
-**This feature supplies the durable implementation.** The port is unchanged; only the backing changes.
+**This feature supplies the durable implementation.** The port is unchanged; only the backing changed.
 
 ```python
 class SourceStateStore(Protocol):
@@ -28,14 +26,14 @@ class SourceStateStore(Protocol):
 sources that **hold records**, so that a source removed from the configuration is reported rather than
 silently orphaned. A source row with no records is not a source whose data would be lost.
 
-## What changes in 0002 when this lands
+## What changed in 0002 — done
 
-| In `0002` | Change |
-|-----------|--------|
-| `sources/state.py` | `InMemorySourceStateStore` becomes a test double; the SQLite implementation is wired in |
-| Task T051 | The `persistence: in_memory_only` field and its stderr notice are removed |
-| `contracts/source-state.md` | The "does not exist yet" caveat and the "resumption points do not survive process exit" limitation are removed |
-| `plan.md` Complexity Tracking | The justification for a port with a single implementation now reads as a port with two — the abstraction is discharged, not merely tolerated |
+| In `0002` | Change | Status |
+|-----------|--------|--------|
+| `sources/state.py` | `SqliteSourceStateStore` is the default; the in-memory one is a test double | applied (T044) |
+| `persistence: in_memory_only` | Removed from the payload, the contract and the stderr notice | applied |
+| `contracts/source-state.md` | The "does not exist yet" caveat and the durability limitation are gone | applied |
+| `plan.md` Complexity Tracking | Reads as a port with two implementations — the abstraction is discharged, not merely tolerated | applied |
 
 ## `RunMode` is an addition 0002 does not yet carry
 
