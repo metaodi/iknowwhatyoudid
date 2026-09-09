@@ -8,6 +8,16 @@
 
 **Input**: User description: "Local store foundation — the embedded database, normalized raw-record schema, migrations, and the common shape every source's data is mapped into. Establishes the storage decisions that every later connector and view depends on."
 
+## Clarifications
+
+### Session 2026-09-09
+
+- Q: When a later ingestion finds a stored record is no longer present at the source, retain it as withdrawn or delete it to mirror the source? → A: Retain and mark withdrawn, with the date observed; never delete.
+- Q: Protect data at rest via the operating system's disk encryption and file permissions, or encrypt the store with a user-held secret? → A: Rely on the operating system; no tool-level encryption and no passphrase.
+- Q: On importing a correction that conflicts with one already in the store, overwrite, skip, or report? → A: Newest wins, by the time the correction was made; every replacement is reported.
+- Q: How should a record dated in the future be handled — accept, reject, or hold back? → A: Accept and store it, flagged future-dated and excluded from elapsed-time summaries until its time has passed.
+- Q: Should a log file be written, and may it contain record content? → A: Yes, in the tool's data directory, owner-only — operations, counts, errors and record identifiers only, never record content.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A durable place for a day's traces (Priority: P1)
@@ -127,7 +137,12 @@ a deliberately failing migration and confirm the store is unchanged and still us
 - The store file is truncated, corrupted, or is not a store file at all.
 - The store is placed on a removable or network volume that disappears mid-run.
 - A correction is imported for a record that does not exist in this store.
+- A correction is imported for a record that already carries a correction, made earlier, later, or at the
+  same moment.
+- A correction arrives from a machine whose clock is wrong, making it look newer or older than it is.
 - A source's clock is wrong, producing records dated in the future.
+- The log file cannot be written — the directory is read-only, or the disk is full — while an ingestion is
+  otherwise able to proceed.
 
 ## Requirements *(mandatory)*
 
@@ -204,11 +219,54 @@ a deliberately failing migration and confirm the store is unchanged and still us
 - **FR-026**: A store that cannot be read MUST be reported with its path and a stated recovery step, and
   the system MUST NOT delete or overwrite it on its own initiative.
 - **FR-027**: When an incremental ingestion finds that a record it previously stored is no longer present
-  at the source, the system MUST [NEEDS CLARIFICATION: retain the record and mark it withdrawn, or delete
-  it to mirror the source?]
-- **FR-028**: The store MUST protect ingested data at rest by [NEEDS CLARIFICATION: relying on the
-  operating system's disk encryption and file permissions, or encrypting the store itself with a
-  user-held secret?]
+  at the source, the system MUST retain that record, mark it withdrawn, and record the date the
+  withdrawal was observed. It MUST NOT delete the record.
+- **FR-028**: A withdrawn record MUST remain queryable, MUST stay attached to any attribution or user
+  correction made against it, and MUST be distinguishable from a present record wherever it is displayed.
+  It MUST be excluded from newly generated summaries by default and includable on request.
+- **FR-029**: A record that reappears at the source after being marked withdrawn MUST have its withdrawal
+  cleared rather than being stored a second time.
+- **FR-030**: The store MUST rely on the operating system's file permissions and full-disk encryption for
+  protection at rest. The system MUST NOT encrypt the store itself and MUST NOT require a passphrase to
+  open it, so that any command remains runnable unattended.
+- **FR-031**: Users MUST be able to see the store's at-rest protection state — its file permissions, and
+  whether full-disk encryption is in force on the volume holding it. Where either cannot be determined,
+  the system MUST report it as unverified rather than implying protection it has not confirmed.
+
+**Correction import conflicts**
+
+- **FR-032**: Every user correction MUST record the time it was made, and that time MUST travel with the
+  correction through export and import.
+- **FR-033**: When an imported correction addresses a record that already carries a correction in this
+  store, the more recently made of the two MUST win. Where the two were made at the same time, the store's
+  existing correction MUST be kept.
+- **FR-034**: An import MUST report every correction it replaced and every one it declined to replace,
+  identifying the record and both versions, so that a silently overwritten correction is impossible.
+
+**Future-dated records**
+
+- **FR-035**: System MUST accept a record whose time lies ahead of the moment it was ingested, MUST store
+  it unmodified, and MUST NOT rewrite its time to something more plausible.
+- **FR-036**: A record whose time has not yet passed MUST be identifiable as future-dated — determined by
+  comparing its time with the time of the ingestion run that produced it — and MUST be excluded by default
+  from any summary of elapsed time.
+- **FR-037**: Once a future-dated record's time has passed, it MUST be treated as an ordinary record with
+  no further action by the user, and MUST NOT need re-ingesting to become countable.
+- **FR-038**: System MUST be able to report how many future-dated records each source has contributed, so
+  that a source with a wrong clock is discoverable rather than merely absent from the numbers.
+
+**Diagnostics and logging**
+
+- **FR-039**: System MUST write a diagnostic log inside the tool's own data directory, created with access
+  restricted to the account that owns it, and MUST be able to report the log's location.
+- **FR-040**: The log MUST carry operations, per-source counts, timings, and errors, and MUST identify a
+  record only by its source and that source's identifier for it.
+- **FR-041**: The log MUST NOT contain record content — no titles, no payloads, no participant names — and
+  MUST NOT contain credentials or other secrets.
+- **FR-042**: The log MUST be bounded in size, so that it cannot grow without limit on a machine whose
+  records are retained indefinitely.
+- **FR-043**: A log that cannot be written MUST NOT prevent an operation from completing; the system MUST
+  report the failure once and continue.
 
 ### Key Entities
 
@@ -216,14 +274,16 @@ a deliberately failing migration and confirm the store is unchanged and still us
   Identified by a stable name, carries its own resumption point and ingestion history.
 - **Activity Record**: One normalized trace of something that happened. Carries the source it came from,
   that source's identifier for it, when it happened and in which time zone, a title, its unmodified
-  source payload, and the ingestion run that produced it. Regenerable from the source.
+  source payload, the ingestion run that produced it, and — once the source stops presenting it — the
+  date its withdrawal was observed. Regenerable from the source, except once withdrawn.
 - **Ingestion Run**: One execution of a read against one source. Carries when it ran, what range it
   covered, how many records it produced, and whether it completed.
 - **Derived Attribution**: A mapping of an activity record to a project, produced by a rule. Carries the
   evidence it rests on, the rule that produced it, and its status as inferred. Fully regenerable from
   activity records; this feature stores it, later features produce it.
 - **User Correction**: A user's authoritative statement about an activity record, overriding whatever was
-  inferred. Not regenerable from any source; the only irreplaceable data in the store.
+  inferred. Carries the time it was made, which decides which version wins when two stores disagree. Not
+  regenerable from any source; the only irreplaceable data in the store.
 - **Store Version**: The structure version the store is at, and the ordered migrations that move it
   between versions.
 
@@ -250,6 +310,17 @@ a deliberately failing migration and confirm the store is unchanged and still us
   ingestion run it came from — with no unattributed records in the store.
 - **SC-010**: Interrupting an ingestion at any point leaves a store that opens cleanly and whose record
   count matches a whole number of completed batches.
+- **SC-011**: A record that disappears from its source is still present in the store afterwards, marked
+  withdrawn and dated — no ingestion reduces the stored record count.
+- **SC-012**: The store's at-rest protection state is visible in one command, and reports "unverified"
+  rather than "protected" wherever it could not be confirmed.
+- **SC-013**: A record dated ahead of its ingestion is stored with its time unchanged, contributes zero to
+  elapsed-time summaries until that time passes, and counts normally afterwards without re-ingestion.
+- **SC-014**: An import that would replace an existing correction names every replacement and every
+  declined replacement — no correction changes without appearing in the import report.
+- **SC-015**: After a full ingestion of a year of records, searching the log for any stored record's title
+  or payload returns zero matches, while every failed record remains identifiable in the log by source and
+  source-side identifier.
 
 ## Assumptions
 
@@ -269,6 +340,9 @@ a deliberately failing migration and confirm the store is unchanged and still us
   migration requirement (FR-020) exists to absorb.
 - Timesheet-grade accuracy means a record's absence must be visible. Where this feature must choose
   between silently dropping data and reporting a gap, it reports the gap.
+- Withdrawn records (FR-027) join user corrections as data the sources can no longer supply. A rebuild
+  cannot recreate them, which is what FR-016's rebuild report exists to make visible; unlike corrections,
+  they are not promised to survive a delete-and-rebuild.
 
 ## Out of Scope
 
@@ -281,3 +355,5 @@ a deliberately failing migration and confirm the store is unchanged and still us
 - Deduplicating the same real-world event observed through two different sources. The store keeps both;
   reconciling them is an attribution concern.
 - Pruning, archiving, or age-based deletion of ingested records.
+- Encrypting the store with a user-held secret, and any passphrase or key management that would imply
+  (FR-030). Protection at rest is the operating system's job.
