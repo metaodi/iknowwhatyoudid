@@ -27,3 +27,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Speckit
+.specify/**/.cache/
