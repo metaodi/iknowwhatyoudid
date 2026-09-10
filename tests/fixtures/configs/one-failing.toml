@@ -1,0 +1,10 @@
+[[source]]
+name     = "good"
+kind     = "fixture"
+recorded = ["tests/fixtures/recorded/day.jsonl"]
+
+[[source]]
+name       = "bad"
+kind       = "mail.gmail"
+credential = "nowhere"
+addresses  = ["me@example.com"]

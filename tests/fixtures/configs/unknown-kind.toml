@@ -1,0 +1,8 @@
+[[source]]
+name = "mystery"
+kind = "obsidian.vault"
+
+[[source]]
+name     = "fine"
+kind     = "fixture"
+recorded = ["tests/fixtures/recorded/day.jsonl"]

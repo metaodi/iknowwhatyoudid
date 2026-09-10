@@ -1,0 +1,7 @@
+[[source]]
+name     = "recorded"
+kind     = "fixture"
+recorded = ["tests/fixtures/recorded/day.jsonl"]
+
+[projects]
+acme = ["someone@example.com"]

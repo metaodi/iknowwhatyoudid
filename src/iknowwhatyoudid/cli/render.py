@@ -12,6 +12,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from ..credentials.redaction import redact
+
 SCHEMA = "iknowwhatyoudid/v1"
 
 MICROSECONDS = 1_000_000
@@ -25,18 +27,47 @@ def envelope(
     data: Mapping[str, Any] | None = None,
     findings: Sequence[Mapping[str, Any]] = (),
 ) -> str:
-    return json.dumps(
-        {
-            "schema": SCHEMA,
-            "command": command,
-            "ok": ok,
-            "store_path": store_path,
-            "data": dict(data or {}),
-            "findings": list(findings),
-        },
-        ensure_ascii=False,
-        default=str,
+    """The one place a payload becomes JSON — so redaction is structural (FR-022).
+
+    A `--json` path that skipped redaction would be the obvious leak, which is why both
+    forms go through this module rather than each command formatting its own output.
+    """
+    return redact(
+        json.dumps(
+            {
+                "schema": SCHEMA,
+                "command": command,
+                "ok": ok,
+                "store_path": store_path,
+                "data": dict(data or {}),
+                "findings": list(findings),
+            },
+            ensure_ascii=False,
+            default=str,
+        )
     )
+
+
+def human(text: str) -> str:
+    """The same chokepoint for human output."""
+    return redact(text)
+
+
+def finding_payload(finding: Any) -> dict[str, Any]:
+    """One finding, as `--json` consumers see it.
+
+    `code` is the stable contract; `message` wording stays free to improve, and `line`
+    may be null because it is best-effort (research D2).
+    """
+    return {
+        "severity": finding.severity.value,
+        "code": finding.code,
+        "source_name": finding.source_name,
+        "key_path": finding.key_path,
+        "line": finding.line,
+        "message": finding.message,
+        "remedy": finding.remedy,
+    }
 
 
 def when(micros: int | None, *, date_only: bool = False) -> str:

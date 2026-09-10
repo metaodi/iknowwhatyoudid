@@ -71,3 +71,41 @@ class MigrationError(StoreError):
 
 class BatchError(IkwydError):
     """A batch handed to the store violates the record contract."""
+
+
+class ConfigError(IkwydError):
+    """The configuration could not be used as given."""
+
+
+class ConfigParseError(ConfigError):
+    """The configuration file is not valid TOML (FR-004).
+
+    Exit code 2 rather than 1: a broken file and a valid file describing a broken
+    source are different problems, and a script driving this tool must tell them apart.
+    """
+
+    exit_code = EXIT_USAGE
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        remedy: str | None = None,
+        line: int | None = None,
+        column: int | None = None,
+    ) -> None:
+        super().__init__(message, remedy=remedy)
+        self.line = line
+        self.column = column
+
+
+class ConfigNotFoundError(ConfigError):
+    """No configuration file exists at the resolved path (FR-002)."""
+
+
+class UnknownKindError(ConfigError):
+    """A source names a kind this build does not carry (FR-029)."""
+
+
+class CredentialUnreadableError(ConfigError):
+    """A credential store exists but could not be read (FR-021)."""

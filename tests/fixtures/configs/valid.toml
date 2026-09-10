@@ -1,0 +1,28 @@
+# iknowwhatyoudid — sources
+version = 1
+
+[[source]]
+name       = "work-repos"
+kind       = "git.local"
+since      = 2026-01-01T00:00:00+01:00
+paths      = ["~/dev"]
+identities = ["stefan@example.com"]
+
+[[source]]
+name            = "work-mail"
+kind            = "mail.outlook"
+credential      = "outlook-work"
+addresses       = ["stefan@example.com"]
+folders.include = ["Inbox", "Sent Items"]
+
+[[source]]
+name       = "personal-mail"
+kind       = "mail.hey"
+enabled    = false
+credential = "hey-personal"
+addresses  = ["stefan@hey.com"]
+
+[[source]]
+name     = "recorded-day"
+kind     = "fixture"
+recorded = ["tests/fixtures/recorded/day.jsonl"]

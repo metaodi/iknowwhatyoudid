@@ -1,0 +1,53 @@
+# iknowwhatyoudid — sources
+#
+# This file says WHERE to read from. It holds no secrets: credentials are referenced
+# by name, and the values live in credentials.toml beside this file.
+#
+# The tool never writes this file. Copy it to:
+#   Windows  %APPDATA%\iknowwhatyoudid\config.toml
+#   macOS    ~/Library/Application Support/iknowwhatyoudid/config.toml
+#   Linux    ~/.config/iknowwhatyoudid/config.toml
+#
+# Then run:  ikwyd sources validate
+
+version = 1
+
+# --- git: local repositories -------------------------------------------------------
+[[source]]
+name       = "REPLACE-with-a-name-you-choose"
+kind       = "git.local"
+since      = 2026-01-01T00:00:00+01:00
+paths      = ["REPLACE/with/a/folder/holding/repositories"]
+identities = ["REPLACE@example.com"]
+
+# --- mail --------------------------------------------------------------------------
+# `credential` is a NAME. Put the secret in credentials.toml, never here.
+[[source]]
+name            = "REPLACE-work-mail"
+kind            = "mail.outlook"          # or mail.gmail, mail.hey
+credential      = "REPLACE-credential-name"
+since           = 2026-01-01T00:00:00+01:00
+addresses       = ["REPLACE@example.com"]
+folders.include = ["Inbox", "Sent Items"]
+folders.exclude = ["Junk Email"]
+
+# A source you are not ready to read yet. Switching it off keeps whatever it has
+# already contributed to the store; it simply stops being read.
+[[source]]
+name       = "REPLACE-personal-mail"
+kind       = "mail.hey"
+enabled    = false
+credential = "REPLACE-credential-name"
+addresses  = ["REPLACE@example.com"]
+
+# --- calendar ----------------------------------------------------------------------
+[[source]]
+name       = "REPLACE-work-calendar"
+kind       = "calendar.google"            # or calendar.outlook
+credential = "REPLACE-credential-name"
+calendars  = ["primary"]
+
+# Run `ikwyd sources kinds` to see every kind and the settings it accepts.
+#
+# Mapping people or repositories to projects does NOT go here. That is attribution,
+# and it belongs to a later feature — a [projects] table is rejected, not ignored.

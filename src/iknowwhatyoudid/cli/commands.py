@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +21,7 @@ from ..store import connection as conn
 from ..store import integrity, migrate, stats
 from ..store.location import log_path_for, resolve_store_path
 from .render import envelope, size, table, when
+from .render import human as render_human
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,17 +31,23 @@ class Result:
     store_path: Path
     data: Mapping[str, Any]
     human: str
+    findings: Sequence[Mapping[str, Any]] = ()
 
     @property
     def exit_code(self) -> int:
         return 0 if self.ok else 1
 
     def render(self, as_json: bool) -> str:
+        """Both forms go through cli.render, which is where redaction is applied."""
         if as_json:
             return envelope(
-                self.command, ok=self.ok, store_path=str(self.store_path), data=self.data
+                self.command,
+                ok=self.ok,
+                store_path=str(self.store_path),
+                data=self.data,
+                findings=self.findings,
             )
-        return self.human
+        return render_human(self.human)
 
 
 @dataclass(frozen=True, slots=True)

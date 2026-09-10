@@ -1,0 +1,2 @@
+{"source_id": "r1", "occurred": "2026-03-01T09:00:00+00:00", "title": "stand-up", "payload": {"kind": "meeting"}}
+{"source_id": "r2", "occurred": "2026-03-01T11:30:00+00:00", "title": "review", "payload": {"kind": "meeting"}}

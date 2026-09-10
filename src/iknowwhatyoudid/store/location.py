@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+from ..errors import UsageError
+
 APP_NAME = "iknowwhatyoudid"
 STORE_FILENAME = "store.db"
 LOG_FILENAME = "iknowwhatyoudid.log"
@@ -59,9 +61,21 @@ def resolve_store_path(
     env: dict[str, str] | None = None,
     platform: str | None = None,
 ) -> Path:
-    """The store to use: ``--store PATH`` if given, else the platform default (FR-004)."""
+    """The store to use: ``--store PATH`` if given, else the platform default (FR-004).
+
+    An *empty* override is refused rather than resolved. It almost always means an unset
+    shell variable, and quietly turning `--store ""` into the current directory — or
+    worse, into the real default store — is how a command lands somewhere the user did
+    not intend.
+    """
     if override is not None:
-        return Path(override).expanduser()
+        text = str(override).strip()
+        if not text:
+            raise UsageError(
+                "--store was given an empty path",
+                remedy="Give a path, or omit --store to use the default store.",
+            )
+        return Path(text).expanduser()
     return default_store_path(env, platform)
 
 

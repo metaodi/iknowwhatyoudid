@@ -8,7 +8,8 @@ from collections.abc import Sequence
 
 from ..errors import EXIT_USAGE, IkwydError
 from ..store.location import resolve_store_path
-from . import commands
+from ..sources.state import SqliteSourceStateStore
+from . import commands, sources_commands
 
 
 def _global_options(*, suppress: bool) -> argparse.ArgumentParser:
@@ -80,6 +81,46 @@ def build_parser() -> argparse.ArgumentParser:
         "discard", help="discard the derived region", parents=[common]
     )
 
+    sources = subparsers.add_parser("sources", help="configured sources")
+    source_actions = sources.add_subparsers(dest="action", required=True)
+    for verb, helptext in (
+        ("list", "every configured source and its status"),
+        ("validate", "check the configuration; contacts nothing"),
+        ("destinations", "every destination the configuration could contact"),
+    ):
+        leaf = source_actions.add_parser(verb, help=helptext, parents=[common])
+        leaf.add_argument("--config", help="use this configuration file")
+    check = source_actions.add_parser(
+        "check", help="check one source", parents=[common]
+    )
+    check.add_argument("name")
+    check.add_argument("--config", help="use this configuration file")
+    check.add_argument(
+        "--live", action="store_true", help="contact the source to confirm it is reachable"
+    )
+    kinds = source_actions.add_parser(
+        "kinds", help="available source kinds and their settings", parents=[common]
+    )
+    kinds.add_argument("name", nargs="?")
+    kinds.add_argument("--config", help="use this configuration file")
+
+    ingest = subparsers.add_parser("ingest", help="read from configured sources")
+    ingest.add_argument("--config", help="use this configuration file")
+    ingest.add_argument("--source", help="only this source")
+    ingest.add_argument("--dry-run", action="store_true")
+    ingest.add_argument(
+        "--sweep",
+        action="store_true",
+        help=(
+            "read exhaustively over the window, so records the source no longer "
+            "presents can be marked withdrawn. Without this a run is incremental and "
+            "nothing is ever withdrawn."
+        ),
+    )
+    for option in common._actions:  # attach the global options to `ingest` too
+        if option.dest != "help":
+            ingest._add_action(option)
+
     corrections = subparsers.add_parser("corrections", help="user corrections")
     correction_actions = corrections.add_subparsers(dest="action", required=True)
     export = correction_actions.add_parser(
@@ -99,7 +140,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _dispatch_sources(args: argparse.Namespace) -> commands.Result:
+    """The `sources` group and `ingest` read a configuration, not a store.
+
+    `sources kinds` needs neither, so it never fails on a missing configuration file —
+    asking what can be configured must work before anything is configured.
+    """
+    config = getattr(args, "config", None)
+    if args.group == "sources" and args.action == "kinds":
+        try:
+            session: sources_commands.ConfigSession | None = (
+                sources_commands.open_config(config)
+            )
+        except IkwydError:
+            session = None
+        return sources_commands.sources_kinds(session, name=args.name)
+
+    session = sources_commands.open_config(config)
+    store_session = commands.open_store(args.store, verbose=args.verbose)
+    store = SqliteSourceStateStore(store_session.connection)
+
+    match (args.group, getattr(args, "action", None)):
+        case ("sources", "list"):
+            return sources_commands.sources_list(session, store)
+        case ("sources", "validate"):
+            return sources_commands.sources_validate(session, store)
+        case ("sources", "check"):
+            return sources_commands.sources_check(
+                session, name=args.name, live=args.live
+            )
+        case ("sources", "destinations"):
+            return sources_commands.sources_destinations(session)
+        case ("ingest", _):
+            return sources_commands.ingest(
+                session,
+                store,
+                connection=store_session.connection,
+                only=args.source,
+                dry_run=args.dry_run,
+                sweep=args.sweep,
+            )
+    raise IkwydError(f"unknown command: {args.group}")
+
+
 def _dispatch(args: argparse.Namespace) -> commands.Result:
+    if args.group in {"sources", "ingest"}:
+        return _dispatch_sources(args)
+
     session = commands.open_store(args.store, verbose=args.verbose)
 
     match (args.group, args.action):
@@ -152,7 +239,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _use_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
-    command = f"{args.group}.{args.action}"
+    action = getattr(args, "action", None)
+    command = f"{args.group}.{action}" if action else args.group
 
     try:
         result = _dispatch(args)

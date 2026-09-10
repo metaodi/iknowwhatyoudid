@@ -82,3 +82,42 @@ class SqliteSourceStateStore:
 
     def record_count(self, source_name: str) -> int:
         return repository.record_count(self._connection, source_name)
+
+
+class InMemorySourceStateStore:
+    """A test double.
+
+    Was the only implementation while `0001` was unbuilt; `SqliteSourceStateStore` is
+    now the default and this exists so tests need no database file.
+    """
+
+    def __init__(self) -> None:
+        self._points: dict[str, datetime] = {}
+        self._counts: dict[str, int] = {}
+
+    def resumption_point(self, source_name: str) -> datetime | None:
+        return self._points.get(source_name)
+
+    def record_ingestion(
+        self, outcome: SourceRunOutcome, through: datetime | None
+    ) -> None:
+        if not outcome.succeeded or through is None:
+            return
+        current = self._points.get(outcome.source_name)
+        if current is None or through > current:
+            self._points[outcome.source_name] = through
+        self._counts[outcome.source_name] = (
+            self._counts.get(outcome.source_name, 0) + outcome.records_ingested
+        )
+
+    def known_source_names(self) -> frozenset[str]:
+        return frozenset(name for name, count in self._counts.items() if count > 0)
+
+    def record_count(self, source_name: str) -> int:
+        return self._counts.get(source_name, 0)
+
+    def seed(self, source_name: str, *, point: datetime | None, count: int) -> None:
+        """Set up state directly, for tests that start from a populated store."""
+        if point is not None:
+            self._points[source_name] = point
+        self._counts[source_name] = count
