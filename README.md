@@ -21,14 +21,39 @@ Requires Python 3.12. `uv` provisions it.
 
 ## What works today
 
-Feature `0001` — the local store — is implemented: the database every later feature reads
-and writes, the normalized record shape, migrations, corrections, and the CLI around them.
-**No connector exists yet**, so nothing is read from mail, calendar, or git; the store is
-exercised through fixture batches. Connectors are features `0003`–`0005`.
+Features `0001` (the local store) and `0002` (configurable sources) are implemented: the
+database everything reads and writes, the normalized record shape, migrations,
+corrections, the configuration file, validation, the source-kind registry, credential
+handling, and the CLI around all of it.
+
+**No real connector exists yet.** `git.local`, `mail.*` and `calendar.*` ship as
+*declarations* — you can configure them and they validate, but they report
+`not readable` rather than pretending to work. Only the `fixture` kind actually reads
+anything. Connectors are features `0003`–`0005`.
+
+## Configure your sources
+
+```bash
+cp examples/config.toml "$APPDATA/iknowwhatyoudid/config.toml"   # Windows
+ikwyd sources kinds          # what can be configured, and the settings each accepts
+ikwyd sources validate       # every fault at once; contacts nothing
+ikwyd sources destinations   # the whole egress surface, before anything is contacted
+ikwyd ingest                 # read from every ready source
+```
+
+The configuration file holds **no secrets** — credentials are referenced by name, with
+values in `credentials.toml` beside it. The tool never writes either file.
 
 ## Commands
 
 ```bash
+ikwyd sources list            # every configured source and its status
+ikwyd sources validate        # check the configuration; contacts nothing
+ikwyd sources check NAME [--live]
+ikwyd sources kinds [NAME]    # available kinds and their settings
+ikwyd sources destinations    # every destination the configuration could contact
+ikwyd ingest [--source NAME] [--dry-run] [--sweep]
+
 ikwyd store info              # where the store is and what it holds
 ikwyd store check             # full integrity check
 ikwyd store migrate           # apply pending schema migrations
