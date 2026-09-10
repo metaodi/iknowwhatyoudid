@@ -18,9 +18,11 @@ from iknowwhatyoudid.errors import MigrationError, StoreTooNewError
 from iknowwhatyoudid.records import repository as repo
 from iknowwhatyoudid.store import connection as conn
 from iknowwhatyoudid.store import migrate
-from iknowwhatyoudid.store.migrations import m0001_initial
-
-BASE = migrate.MigrationStep(1, "m0001_initial", m0001_initial.upgrade)
+#: The migrations the product actually ships. A test that adds one must sit *above*
+#: them, or it collides with a real migration the moment a new one lands.
+BASE = migrate.discover()
+NEXT_VERSION = migrate.highest_known_version() + 1
+CURRENT_VERSION = migrate.highest_known_version()
 
 
 def _add_column(connection: sqlite3.Connection) -> None:
@@ -62,13 +64,15 @@ def test_a_pending_migration_is_applied_without_intervention(
     """FR-020, SC-006 — counts identical afterwards."""
     connection, path, records, corrections = store_at_v1
     monkeypatch.setattr(
-        migrate, "discover", lambda: (BASE, migrate.MigrationStep(2, "m0002", _add_column))
+        migrate,
+        "discover",
+        lambda: (*BASE, migrate.MigrationStep(NEXT_VERSION, "m_test", _add_column)),
     )
 
     applied = migrate.ensure_current(connection, path)
 
-    assert applied.current == 1 and applied.target == 2
-    assert conn.user_version(connection) == 2
+    assert applied.current == CURRENT_VERSION and applied.target == NEXT_VERSION
+    assert conn.user_version(connection) == NEXT_VERSION
     assert int(connection.execute("SELECT count(*) FROM raw_record").fetchone()[0]) == records
     assert corrections_repo.count(connection) == corrections
 
@@ -80,14 +84,18 @@ def test_a_failed_migration_leaves_the_store_exactly_as_it_was(
     """FR-021, SC-007 — the behaviour that rests on transactional DDL."""
     connection, path, records, corrections = store_at_v1
     monkeypatch.setattr(
-        migrate, "discover", lambda: (BASE, migrate.MigrationStep(2, "m0002", _explode))
+        migrate,
+        "discover",
+        lambda: (*BASE, migrate.MigrationStep(NEXT_VERSION, "m_test", _explode)),
     )
 
     with pytest.raises(MigrationError) as caught:
         migrate.migrate(connection, path)
 
     assert "unchanged" in (caught.value.remedy or "")
-    assert conn.user_version(connection) == 1, "version rolled back with the transaction"
+    assert (
+        conn.user_version(connection) == CURRENT_VERSION
+    ), "version rolled back with the transaction"
 
     tables = {
         row[0]
@@ -133,12 +141,14 @@ def test_a_failed_migration_retains_its_snapshot(
     repo.ingest(connection, make_batch("mail", records=[make_record("a")]))
 
     monkeypatch.setattr(
-        migrate, "discover", lambda: (BASE, migrate.MigrationStep(2, "m0002", _explode))
+        migrate,
+        "discover",
+        lambda: (*BASE, migrate.MigrationStep(NEXT_VERSION, "m_test", _explode)),
     )
     with pytest.raises(MigrationError):
         migrate.migrate(connection, path)
 
-    assert migrate.snapshot_path(path, 1).exists()
+    assert migrate.snapshot_path(path, CURRENT_VERSION).exists()
     connection.close()
 
 
@@ -146,4 +156,4 @@ def test_discovery_finds_the_shipped_migration() -> None:
     steps = migrate.discover()
     assert [step.version for step in steps] == sorted(step.version for step in steps)
     assert steps[0].version == 1
-    assert migrate.highest_known_version() >= 1
+    assert migrate.highest_known_version() >= 2

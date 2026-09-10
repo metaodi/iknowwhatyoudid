@@ -84,7 +84,7 @@ Kind names are stable — they appear in users' files and cannot be renamed with
 
 | Kind | Credential | Destinations | Reading | Settings |
 |------|-----------|--------------|---------|----------|
-| `git.local` | no | none | *later (0003)* | `paths` (PATH_LIST, required), `identities` (IDENTITY_LIST, required) |
+| `git.local` | no | none | **available** (0003) | `paths` (PATH_LIST, required), `identities` (IDENTITY_LIST, required), `exclude` (PATH_LIST) |
 | `mail.outlook` | yes | Microsoft Graph | *later (0004)* | `addresses` (required), `folders.include`, `folders.exclude` |
 | `mail.gmail` | yes | Google Gmail API | *later (0004)* | `addresses` (required), `labels.include`, `labels.exclude` |
 | `mail.hey` | yes | Hey IMAP | *later (0004)* | `addresses` (required), `folders.include`, `folders.exclude` |

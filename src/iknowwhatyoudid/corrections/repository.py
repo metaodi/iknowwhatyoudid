@@ -107,8 +107,9 @@ def project_for(
         return correction.project, True
 
     row = connection.execute(
-        "SELECT d.project FROM derived_attribution d "
+        "SELECT p.name AS project FROM derived_attribution d "
         "JOIN raw_record r ON r.id = d.record_id "
+        "JOIN user_project p ON p.id = d.project_id "
         "WHERE r.source = ? AND r.source_id = ? ORDER BY d.derived_at_utc DESC LIMIT 1",
         (source, source_id),
     ).fetchone()

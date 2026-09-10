@@ -26,10 +26,10 @@ database everything reads and writes, the normalized record shape, migrations,
 corrections, the configuration file, validation, the source-kind registry, credential
 handling, and the CLI around all of it.
 
-**No real connector exists yet.** `git.local`, `mail.*` and `calendar.*` ship as
-*declarations* — you can configure them and they validate, but they report
-`not readable` rather than pretending to work. Only the `fixture` kind actually reads
-anything. Connectors are features `0003`–`0005`.
+**Git works.** `git.local` reads commits, branches and merges from your local
+repositories — never over a network, and verified never to modify one. `mail.*` and
+`calendar.*` are still *declarations*: you can configure them and they validate, but they
+report `not readable` rather than pretending to work. Those are features `0004`–`0005`.
 
 ## Configure your sources
 
@@ -42,11 +42,24 @@ ikwyd ingest                 # read from every ready source
 ```
 
 The configuration file holds **no secrets** — credentials are referenced by name, with
-values in `credentials.toml` beside it. The tool never writes either file.
+values in `credentials.toml` beside it. Which repositories belong to which project goes
+in `projects.toml`, also beside it. The tool never writes any of the three.
+
+Everything is recorded against a **project**. Where you have not said which project a
+repository belongs to, the repository's own name is used and marked `(ad hoc)`, so an
+assumption is never mistaken for a decision. Change the mapping and run
+`ikwyd projects rederive` — it re-attributes what is already recorded without reading a
+single repository.
 
 ## Commands
 
 ```bash
+ikwyd repos list              # every repository your configuration matches
+ikwyd repos check             # discovery diagnostics without ingesting
+ikwyd projects list           # every project and how much activity it holds
+ikwyd projects validate       # check the project mapping
+ikwyd projects rederive [--dry-run]
+
 ikwyd sources list            # every configured source and its status
 ikwyd sources validate        # check the configuration; contacts nothing
 ikwyd sources check NAME [--live]
@@ -93,6 +106,12 @@ recovery step and left exactly as it is.
 are keyed by the source's own identifiers rather than internal row ids, which is what lets
 them survive deleting the store and re-ingesting from scratch. Import merges newest-wins
 by when the correction was made, and names every replacement — nothing changes silently.
+
+**Two things git cannot tell you, which the tool does not pretend to know.** It records
+*when* you committed and never *how long the work took*, so no duration or effort
+estimate is ever stored — turning activity into hours is a later feature's job. And
+branch-creation history is necessarily incomplete: the evidence lives only in the reflog,
+which is never cloned and expires after 90 days.
 
 **Protection at rest is the operating system's job.** There is no passphrase, so commands
 stay runnable unattended. `store protection` reports what it can actually verify, and says

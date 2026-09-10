@@ -35,3 +35,6 @@ disallow_any_explicit = false
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["tests"]
+markers = [
+  "slow: builds a large fixture repository; run with `-m slow` or in full",
+]

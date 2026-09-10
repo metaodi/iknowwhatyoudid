@@ -1,12 +1,12 @@
-"""The `git.local` kind — declaration only (FR-035).
+"""The `git.local` kind.
 
-Reading arrives with feature 0003. This ships as a declaration so the configuration can
-express it today, and reports `NOT_READABLE` rather than claiming a source will be read
-when it will not.
+Declared by `0002`; the reader arrives with `0003`. Reads commits, branches and merges
+from local repositories — never over a network, and never writing to one.
 """
 
 from __future__ import annotations
 
+from ..git.reader import GitReader
 from .spec import ReadingAvailability, SettingSpec, SettingType, SourceKind
 
 KIND = SourceKind(
@@ -25,9 +25,15 @@ KIND = SourceKind(
             required=True,
             help="Author or committer identities that are yours.",
         ),
+        SettingSpec(
+            key="exclude",
+            type=SettingType.PATH_LIST,
+            help="Locations to skip, so a broad pattern can be narrowed.",
+        ),
     ),
     credential_required=False,
+    # Local only. A repository's remotes are never contacted, even where configured.
     destinations=(),
-    reading=ReadingAvailability.NOT_YET_IMPLEMENTED,
-    arrives_in="0003",
+    reading=ReadingAvailability.AVAILABLE,
+    reader=GitReader(),
 )

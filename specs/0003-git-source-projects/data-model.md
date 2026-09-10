@@ -67,9 +67,9 @@ scanning.
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | INTEGER PK | |
-| `identity` | TEXT UNIQUE | Root commit SHA, or `path:<resolved git-common-dir>` for a repository with no commits (research R3) |
+| `identity` | TEXT UNIQUE | The resolved `--git-common-dir` (research R3, revised during implementation) |
 | `name` | TEXT | The working-tree directory name; the ad-hoc project name comes from this |
-| `identity_kind` | TEXT | `root_commit` or `path` — so a fallback identity is never mistaken for a durable one |
+| `identity_kind` | TEXT | `git_dir` — recorded so a later change of rule is visible in the data |
 | `first_seen_utc`, `last_seen_utc` | INTEGER | |
 
 ### Observed paths (`raw_repository_path`)
@@ -81,9 +81,11 @@ scanning.
 | `is_bare`, `is_worktree` | INTEGER | |
 | `last_seen_utc` | INTEGER | |
 
-**One identity, many paths** — because a bare clone, a linked worktree and the original all share a root
-commit (**verified**, research R3). Collapsing them is right for a timesheet: the user worked on that
-repository, not on a checkout. But identity then cannot answer "where is it", so the paths are kept
+**One identity, many paths** — because a linked worktree resolves to its origin's git directory, and one
+working tree is reachable at every path beneath it (**verified**, research R3). Collapsing those is right
+for a timesheet: the user worked on that repository, not on a checkout. An independent clone is a
+*different* repository, deliberately, because merging two that are not the same is invisible and merging
+two that are is a one-line mapping entry. Identity then cannot answer "where is it", so the paths are kept
 separately and all are reported.
 
 ---

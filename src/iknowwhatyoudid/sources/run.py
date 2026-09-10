@@ -14,8 +14,12 @@ from enum import StrEnum
 
 from ..config.findings import Readiness
 from ..config.validate import SourceStatus, ValidationReport
+from ..kinds.spec import ReportsSkips
 from ..records import repository as records_repo
-from ..records.model import Batch, RunMode
+from collections.abc import Sequence
+from pathlib import Path
+
+from ..records.model import Batch, NormalizedRecord, RunMode
 from .state import SourceRunOutcome, SourceStateStore
 
 
@@ -40,6 +44,9 @@ class Outcome:
     failure: FailureCategory | None = None
     detail: str | None = None
     records_ingested: int = 0
+    #: Parts of a source that could not be read while the rest still contributed. A
+    #: partial success is still a success, but never a silent one (FR-020, SC-011).
+    skipped_parts: tuple[str, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -70,9 +77,22 @@ class RunReport:
         return sum(o.records_ingested for o in self.outcomes)
 
     @property
+    def skipped_parts(self) -> int:
+        return sum(len(o.skipped_parts) for o in self.outcomes)
+
+    @property
     def ok(self) -> bool:
         """False when any source failed, which drives the non-zero exit (FR-044)."""
         return self.failed == 0
+
+
+#: The window a sweep covers when nothing narrows it.
+#:
+#: A sweep must state its window, because that window bounds what may be withdrawn. A
+#: source with no `since` and no resumption point — every source on its first run — is
+#: sweeping everything it can present, and saying so is what lets a first `--sweep`
+#: work at all.
+BEGINNING_OF_TIME = datetime.min.replace(tzinfo=UTC)
 
 
 _SKIP_REASONS: dict[Readiness, str] = {
@@ -98,7 +118,14 @@ def _ingest_one(
 
     resumed = store.resumption_point(status.name)
     since: datetime | None
-    if resumed is not None:
+    if mode is RunMode.SWEEP:
+        # A sweep deliberately ignores the resumption point. Withdrawal concludes that
+        # something the source no longer presents has gone, and that conclusion is only
+        # sound over a window the run actually re-read. A sweep that resumed would read
+        # almost nothing, and so could never notice a rewritten history — which is the
+        # one thing a sweep exists to notice.
+        since = status.source.since
+    elif resumed is not None:
         # The stored point is the instant we have already read *through*, so resuming
         # from it unchanged would re-read the boundary record every run. SC-006 asks
         # for zero records re-read, so the next read starts just after it.
@@ -122,6 +149,12 @@ def _ingest_one(
             str(exc),
         )
 
+    skipped_parts = (
+        tuple(kind.reader.drain_skips())
+        if isinstance(kind.reader, ReportsSkips)
+        else ()
+    )
+
     if connection is not None:
         # T079: RunMode and, for a sweep, the covered window and the ids actually seen,
         # are what let the store decide whether anything may be marked withdrawn.
@@ -131,7 +164,7 @@ def _ingest_one(
             if mode is RunMode.SWEEP
             else None
         )
-        window_from = since if mode is RunMode.SWEEP else None
+        window_from = (since or BEGINNING_OF_TIME) if mode is RunMode.SWEEP else None
         window_to = datetime.now(tz=UTC) if mode is RunMode.SWEEP else None
         batch = Batch(
             source=status.name,
@@ -152,9 +185,16 @@ def _ingest_one(
                 str(exc),
             )
 
+    if connection is not None:
+        _record_repositories(connection, records)
+
     through = max((r.occurred for r in records), default=None)
     outcome = Outcome(
-        status.name, kind.name, RunResult.SUCCEEDED, records_ingested=len(records)
+        status.name,
+        kind.name,
+        RunResult.SUCCEEDED,
+        records_ingested=len(records),
+        skipped_parts=skipped_parts,
     )
     store.record_ingestion(
         SourceRunOutcome(status.name, True, len(records)), through
@@ -219,6 +259,43 @@ def ingest(
         outcomes.append(_ingest_one(status, store, connection, mode))
 
     return RunReport(tuple(outcomes))
+
+
+def _record_repositories(
+    connection: sqlite3.Connection, records: Sequence[NormalizedRecord]
+) -> None:
+    """Register every repository the records came from.
+
+    Deliberately driven by the records rather than by re-running discovery: a record
+    carries the identity it was read under, so this cannot disagree with what was stored.
+    """
+    from ..projects import repository as projects_repo
+
+    seen: dict[str, tuple[str, str | None, str]] = {}
+    for record in records:
+        identity = record.payload.get("repository")
+        name = record.payload.get("repository_name")
+        if isinstance(identity, str) and isinstance(name, str):
+            root = record.payload.get("root_commit")
+            where = record.payload.get("repository_path")
+            seen.setdefault(
+                identity,
+                (
+                    name,
+                    root if isinstance(root, str) else None,
+                    str(where) if isinstance(where, str) else identity,
+                ),
+            )
+
+    for identity, (name, root, where) in seen.items():
+        projects_repo.record_repository(
+            connection,
+            identity=identity,
+            identity_kind="git_dir",
+            name=name,
+            path=Path(where),
+            root_commit=root,
+        )
 
 
 def destinations(report: ValidationReport) -> tuple[tuple[str, str, str], ...]:

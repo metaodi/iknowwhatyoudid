@@ -50,7 +50,8 @@ def test_every_source_is_listed_with_a_verdict() -> None:
 
     assert verdicts["recorded-day"] is f.Readiness.READY
     assert verdicts["personal-mail"] is f.Readiness.DISABLED
-    assert verdicts["work-repos"] is f.Readiness.NOT_READABLE
+    # `git.local` gained a reader in 0003, so it is now READY rather than NOT_READABLE.
+    assert verdicts["work-repos"] is f.Readiness.READY
     assert verdicts["work-mail"] is f.Readiness.CREDENTIAL_MISSING
 
 

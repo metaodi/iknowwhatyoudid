@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from ..errors import EXIT_USAGE, IkwydError
 from ..store.location import resolve_store_path
 from ..sources.state import SqliteSourceStateStore
-from . import commands, sources_commands
+from . import commands, projects_commands, sources_commands
 
 
 def _global_options(*, suppress: bool) -> argparse.ArgumentParser:
@@ -106,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = subparsers.add_parser("ingest", help="read from configured sources")
     ingest.add_argument("--config", help="use this configuration file")
+    ingest.add_argument("--projects", help="use this project mapping file")
     ingest.add_argument("--source", help="only this source")
     ingest.add_argument("--dry-run", action="store_true")
     ingest.add_argument(
@@ -120,6 +121,32 @@ def build_parser() -> argparse.ArgumentParser:
     for option in common._actions:  # attach the global options to `ingest` too
         if option.dest != "help":
             ingest._add_action(option)
+
+    repos = subparsers.add_parser("repos", help="discovered git repositories")
+    repo_actions = repos.add_subparsers(dest="action", required=True)
+    for verb, helptext in (
+        ("list", "every repository the configuration matches; reads no history"),
+        ("check", "discovery diagnostics without ingesting"),
+    ):
+        leaf = repo_actions.add_parser(verb, help=helptext, parents=[common])
+        leaf.add_argument("--config", help="use this configuration file")
+        leaf.add_argument("--projects", help="use this project mapping file")
+
+    projects = subparsers.add_parser("projects", help="projects and their mapping")
+    project_actions = projects.add_subparsers(dest="action", required=True)
+    for verb, helptext in (
+        ("list", "every project and how much activity it holds"),
+        ("validate", "check the project mapping"),
+    ):
+        leaf = project_actions.add_parser(verb, help=helptext, parents=[common])
+        leaf.add_argument("--config", help="use this configuration file")
+        leaf.add_argument("--projects", help="use this project mapping file")
+    rederive = project_actions.add_parser(
+        "rederive", help="re-apply the mapping to recorded activity", parents=[common]
+    )
+    rederive.add_argument("--config", help="use this configuration file")
+    rederive.add_argument("--projects", help="use this project mapping file")
+    rederive.add_argument("--dry-run", action="store_true")
 
     corrections = subparsers.add_parser("corrections", help="user corrections")
     correction_actions = corrections.add_subparsers(dest="action", required=True)
@@ -176,6 +203,8 @@ def _dispatch_sources(args: argparse.Namespace) -> commands.Result:
                 session,
                 store,
                 connection=store_session.connection,
+                projects=getattr(args, "projects", None),
+                config=config,
                 only=args.source,
                 dry_run=args.dry_run,
                 sweep=args.sweep,
@@ -183,9 +212,41 @@ def _dispatch_sources(args: argparse.Namespace) -> commands.Result:
     raise IkwydError(f"unknown command: {args.group}")
 
 
+def _dispatch_projects(args: argparse.Namespace) -> commands.Result:
+    """`repos` and `projects` need both the store and the mapping."""
+    session = commands.open_store(args.store, verbose=args.verbose)
+    config = getattr(args, "config", None)
+    projects = getattr(args, "projects", None)
+
+    match (args.group, args.action):
+        case ("repos", "list"):
+            return projects_commands.repos_list(
+                session.connection, config, projects, session.path
+            )
+        case ("repos", "check"):
+            return projects_commands.repos_check(config, projects, session.path)
+        case ("projects", "list"):
+            return projects_commands.projects_list(session.connection, session.path)
+        case ("projects", "validate"):
+            return projects_commands.projects_validate(
+                session.connection, config, projects, session.path
+            )
+        case ("projects", "rederive"):
+            return projects_commands.projects_rederive(
+                session.connection,
+                config,
+                projects,
+                session.path,
+                dry_run=args.dry_run,
+            )
+    raise IkwydError(f"unknown command: {args.group} {args.action}")
+
+
 def _dispatch(args: argparse.Namespace) -> commands.Result:
     if args.group in {"sources", "ingest"}:
         return _dispatch_sources(args)
+    if args.group in {"repos", "projects"}:
+        return _dispatch_projects(args)
 
     session = commands.open_store(args.store, verbose=args.verbose)
 

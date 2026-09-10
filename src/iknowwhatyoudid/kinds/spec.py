@@ -16,7 +16,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config.findings import Finding
@@ -125,6 +125,22 @@ class SourceReader(Protocol):
         source that has lost everything — so the connector must say. Only a sweep may
         cause a record to be marked withdrawn.
         """
+
+
+@runtime_checkable
+class ReportsSkips(Protocol):
+    """A reader that can partially fail, and must say so.
+
+    A source made of many parts — a folder of repositories, a set of mailboxes — can
+    lose one and still return records for the rest. Continuing is right; continuing
+    *quietly* is not. An unreadable repository that nobody hears about becomes a gap in
+    a timesheet nobody checks, which is the failure this project cares about most.
+
+    Optional: a reader that either wholly succeeds or wholly fails need not implement it.
+    """
+
+    def drain_skips(self) -> Sequence[str]:
+        """What this reader skipped since the last call, one line each, then forget."""
 
 
 @dataclass(frozen=True, slots=True)

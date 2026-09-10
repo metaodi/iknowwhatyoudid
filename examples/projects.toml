@@ -1,0 +1,41 @@
+# iknowwhatyoudid — projects
+#
+# Which repositories belong to which project. This file says what your activity MEANS;
+# config.toml says where to read it FROM. They are separate so that a mapping you are
+# still working out cannot break the configuration that does the reading.
+#
+# Copy to:
+#   Windows  %APPDATA%\iknowwhatyoudid\projects.toml
+#   macOS    ~/Library/Application Support/iknowwhatyoudid/projects.toml
+#   Linux    ~/.config/iknowwhatyoudid/projects.toml
+#
+# Then run:  ikwyd projects validate
+#
+# This file is optional. Without it every repository gets a project of its own, named
+# after the repository and marked "(ad hoc)" wherever it appears. The tool never writes
+# this file.
+
+version = 1
+
+[[project]]
+name         = "REPLACE-with-a-project-name"
+repositories = ["REPLACE-repository-name", "REPLACE-another-repository"]
+note         = "Free text, for your own benefit"
+
+# A repository can be named by its folder name (which survives the repository moving)
+# or by a path (for when two repositories share a name).
+[[project]]
+name         = "REPLACE-another-project"
+repositories = ["REPLACE/path/to/a/repository"]
+
+# A project with no repositories is valid: you have declared it exists, and it stays
+# listed even while empty. Mail and calendar will map onto it in a later feature.
+[[project]]
+name = "REPLACE-admin"
+
+# Changing this file changes nothing on its own. Apply it with:
+#   ikwyd projects rederive --dry-run    # see what would move
+#   ikwyd projects rederive              # move it
+#
+# Re-deriving reads no repository. A correction you made by hand always wins over
+# whatever this file says.

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from iknowwhatyoudid.cli.main import main
+from iknowwhatyoudid.store import schema
 
 
 def run(
@@ -24,7 +25,7 @@ def test_store_info_creates_and_reports(tmp_path: Path, capsys: pytest.CaptureFi
 
     assert code == 0
     assert str(store) in out
-    assert "schema v1" in out
+    assert f"schema v{schema.SCHEMA_VERSION}" in out
     assert store.exists()
 
 

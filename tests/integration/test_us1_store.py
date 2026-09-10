@@ -15,7 +15,7 @@ from iknowwhatyoudid.records import repository as repo
 from iknowwhatyoudid.records import timestamps
 from iknowwhatyoudid.records.model import Batch, RunMode
 from iknowwhatyoudid.store import connection as conn
-from iknowwhatyoudid.store import migrate, stats
+from iknowwhatyoudid.store import migrate, schema, stats
 
 
 def test_store_is_created_on_first_use(tmp_path: Path) -> None:
@@ -27,7 +27,7 @@ def test_store_is_created_on_first_use(tmp_path: Path) -> None:
     migrate.migrate(connection, path)
 
     assert path.exists()
-    assert conn.user_version(connection) == 1
+    assert conn.user_version(connection) == schema.SCHEMA_VERSION
     connection.close()
 
 
@@ -74,7 +74,7 @@ def test_store_info_reports_counts_span_and_last_ingestion(
         store,
         make_batch("mail", records=[make_record("a", day=1), make_record("b", day=9)]),
     )
-    gathered = stats.gather(store, store_path, 1)
+    gathered = stats.gather(store, store_path, schema.SCHEMA_VERSION)
 
     assert [s.name for s in gathered.sources] == ["mail"]
     source = gathered.sources[0]
@@ -320,7 +320,7 @@ def test_future_dated_count_makes_a_wrong_clock_visible(
         store,
         make_batch("mail", records=[make_record("ok", day=1), make_record("skewed", year=2099)]),
     )
-    gathered = stats.gather(store, store_path, 1)
+    gathered = stats.gather(store, store_path, schema.SCHEMA_VERSION)
     assert gathered.sources[0].future_dated == 1
 
 

@@ -109,3 +109,32 @@ class UnknownKindError(ConfigError):
 
 class CredentialUnreadableError(ConfigError):
     """A credential store exists but could not be read (FR-021)."""
+
+
+class GitUnavailableError(IkwydError):
+    """The git binary is missing, or older than this feature needs.
+
+    A tool requirement, not a Python dependency: reported at validation time as a
+    not-ready source naming what to install, never as a traceback at ingestion.
+    """
+
+
+class GitReadError(IkwydError):
+    """A repository could not be read.
+
+    Never fatal for a run: the repository is named by path and the rest are still
+    ingested. A repository the user believes is being read but is not produces a gap
+    in a timesheet that nobody checks.
+    """
+
+
+class GitCommandNotAllowedError(IkwydError):
+    """An attempt was made to run a git command that is not on the read-only list.
+
+    Principle II is an allow-list, not a convention — this is what makes it impossible
+    to reach `fetch` or `gc` without editing the one module a reviewer checks.
+    """
+
+
+class MappingError(ConfigError):
+    """The project mapping file could not be used as given."""

@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..projects import repository as projects_repo
 from ..records import timestamps
 from ..store.connection import writing
 
@@ -23,6 +24,7 @@ class Attribution:
 
     id: int
     record_id: int
+    project_id: int
     project: str
     rule: str
     evidence: Mapping[str, Any]
@@ -37,27 +39,38 @@ def add(
     rule: str,
     evidence: Mapping[str, Any],
     derived_at_utc: int | None = None,
+    ad_hoc: bool = False,
 ) -> int:
+    """Attribute a record to a project, by name.
+
+    The project is resolved to a row, created if it does not exist. `ad_hoc` says
+    whether the caller invented the name or the user declared it — the distinction the
+    user sees everywhere (FR-035), and one a fall-back must never quietly downgrade.
+    """
     at = timestamps.now_micros() if derived_at_utc is None else derived_at_utc
+    resolved = projects_repo.ensure_project(connection, project, ad_hoc=ad_hoc, now=at)
     with writing(connection):
         cursor = connection.execute(
-            "INSERT INTO derived_attribution (record_id, project, rule, evidence, "
+            "INSERT INTO derived_attribution (record_id, project_id, rule, evidence, "
             "derived_at_utc) VALUES (?, ?, ?, ?, ?) RETURNING id",
-            (record_id, project, rule, json.dumps(evidence, sort_keys=True), at),
+            (record_id, resolved.id, rule, json.dumps(evidence, sort_keys=True), at),
         )
         return int(cursor.fetchone()[0])
 
 
 def for_record(connection: sqlite3.Connection, record_id: int) -> list[Attribution]:
     rows = connection.execute(
-        "SELECT id, record_id, project, rule, evidence, derived_at_utc "
-        "FROM derived_attribution WHERE record_id = ? ORDER BY id",
+        "SELECT d.id, d.record_id, d.project_id, p.name AS project, d.rule, d.evidence, "
+        "d.derived_at_utc FROM derived_attribution d "
+        "JOIN user_project p ON p.id = d.project_id "
+        "WHERE d.record_id = ? ORDER BY d.id",
         (record_id,),
     ).fetchall()
     return [
         Attribution(
             id=int(row["id"]),
             record_id=int(row["record_id"]),
+            project_id=int(row["project_id"]),
             project=str(row["project"]),
             rule=str(row["rule"]),
             evidence=json.loads(row["evidence"]),

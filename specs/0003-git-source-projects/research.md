@@ -91,11 +91,14 @@ states that its branch history is necessarily incomplete rather than presenting 
 
 ---
 
-## R3. Repository identity — root commit, with the git-common-dir as fallback
+## R3. Repository identity — the resolved git-common-dir
 
-**Decision**: A repository's identity is the SHA of its **root commit** (the earliest commit with no
-parents). Where a repository has no commits, identity falls back to the resolved path of its
+**Decision (revised during implementation)**: A repository's identity is the resolved path of its
 `--git-common-dir`. A repository has one identity and **many observed paths**.
+
+> **This reverses the decision originally recorded here**, which was the root-commit SHA with the
+> git-common-dir only as a fallback for a repository with no commits. The reasoning that follows is kept
+> in full, because it is why the change was needed rather than a detail of it.
 
 **Rationale**: FR-005 requires the same repository reachable by two configured paths to be recorded once,
 and the spec's Repository entity requires an identity "independent of that path (so a moved repository is
@@ -109,22 +112,46 @@ still the same one)". Root commit satisfies both — it is stable across moves, 
 | `bare.git` (clone) | true | `a4993aa6` | `bare.git` |
 | `wt` (worktree) | false | `a4993aa6` | `repo/.git` |
 
-All three share a root commit, so root-commit identity treats a bare clone, a linked worktree and the
-original as **one repository**. For this tool that is the desirable answer: the user worked on that
-repository, and which checkout they happened to be sitting in is not what a timesheet cares about. It also
-makes the project mapping simpler — one entry covers every checkout.
+All three share a root commit. Merging a linked worktree with its origin is right — which checkout you
+happened to be sitting in is not what a timesheet cares about — but the same rule merges **any** two
+repositories that share a root commit, and that is not right at all.
 
-But it means identity cannot double as "where it lives", so the model keeps a set of observed paths per
+Two things share a root commit that are not the same work:
+
+- a fork, or a long-lived clone that a colleague and I now develop separately;
+- any two repositories started from the same template or `init` scaffold.
+
+Merging those attributes one project's work to another, silently and irreversibly, and the user has no way
+to see that it happened. Splitting a worktree from its origin, by contrast, produces two repository rows
+that a single mapping entry can name — visible, and correctable by editing a file. The constitution's
+Principle V asks for attribution that is transparent and correctable, so **under-merging is the safe
+direction and over-merging is not**.
+
+So identity is the resolved `--git-common-dir`: a linked worktree still resolves to its origin's git
+directory and stays one repository (FR-005), while an independent clone gets its own identity.
+**Verified** in `tests/unit/test_git_discovery.py`:
+`test_a_linked_worktree_is_the_same_repository`, `test_an_independent_clone_is_a_different_repository`,
+and `test_two_repositories_with_the_same_history_stay_separate`.
+
+The cost is that a repository *moved on disk* is no longer recognised as the one already recorded, where
+root-commit identity would have recognised it. That is a real regression against the spec's wish for an
+identity "independent of that path", and it is accepted here as the lesser fault: a moved repository
+produces a visible duplicate the user can merge with a mapping entry, whereas a wrongly merged one
+produces a wrong timesheet with nothing to see. The root commit is still read and kept in the payload, so
+a later feature can offer "this looks like the repository you moved" without re-reading anything.
+
+Identity still cannot double as "where it lives" — a bare clone and a worktree are distinct identities but
+a repository is reachable at several paths within one — so the model keeps a set of observed paths per
 repository and reports all of them.
-
-`--git-common-dir` is what distinguishes a linked worktree from an independent clone within a single run,
-and is the fallback identity for a repository with no commits — **verified**: `empty`, `nested/outer` and
-`nested/outer/inner` all returned no root commit.
 
 **Alternatives considered**:
 
-- **Resolved filesystem path as identity** — simple, and distinguishes clones. Rejected: moving a
-  repository would orphan all of its history, which is exactly what the spec says must not happen.
+- **The root commit SHA** — the decision originally taken here, and stable across moves. Rejected during
+  implementation for the reason set out above: it merges independent repositories that share a root commit,
+  and an over-merge is invisible.
+- **The repository's working-tree path** — rejected: it splits a linked worktree from its origin, which
+  FR-005 forbids, and changes whenever a checkout moves. The *git-common-dir* is the narrower thing, and
+  it is what git itself uses to mean "the same repository".
 - **The `origin` remote URL** — stable and meaningful. Rejected: not every repository has a remote, several
   can share one, and reading it does not survive a repository that is later re-pointed.
 - **A generated id stored in the repository** — rejected outright; writing to the user's repository

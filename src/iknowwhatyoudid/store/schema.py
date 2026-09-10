@@ -5,7 +5,7 @@ See specs/0001-local-store-foundation/contracts/schema.md.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: STRICT tables need SQLite 3.37.
 MINIMUM_SQLITE = (3, 37, 0)
@@ -82,7 +82,71 @@ CREATE TABLE user_correction (
 ) STRICT;
 """
 
-ALL_DDL = (RAW_DDL, DERIVED_DDL, USER_DDL)
+# --- v2: projects and repositories (feature 0003) ------------------------------------
+
+PROJECT_DDL = """
+-- The unit a timesheet reports against. In the USER region: a declared project is the
+-- user's statement, not something derivable from any source.
+CREATE TABLE user_project (
+    id               INTEGER PRIMARY KEY,
+    name             TEXT    NOT NULL,
+    normalised_name  TEXT    NOT NULL UNIQUE,
+    ad_hoc           INTEGER NOT NULL DEFAULT 0 CHECK (ad_hoc IN (0,1)),
+    first_seen_utc   INTEGER NOT NULL
+) STRICT;
+"""
+
+REPOSITORY_DDL = """
+-- A discovered repository. In the RAW region: a fact about the world, rediscoverable.
+CREATE TABLE raw_repository (
+    id              INTEGER PRIMARY KEY,
+    identity        TEXT    NOT NULL UNIQUE,
+    identity_kind   TEXT    NOT NULL CHECK (identity_kind IN ('git_dir','root_commit')),
+    -- Read but not used as the identity: two independent repositories can share a
+    -- root commit, and collapsing them would silently mix two projects' work.
+    root_commit     TEXT,
+    name            TEXT    NOT NULL,
+    first_seen_utc  INTEGER NOT NULL,
+    last_seen_utc   INTEGER NOT NULL
+) STRICT;
+
+-- One identity, many paths: a linked worktree resolves to its origin's common
+-- directory, so it is the same repository seen twice. An independent clone gets its
+-- own identity and stays separate.
+CREATE TABLE raw_repository_path (
+    repository_id  INTEGER NOT NULL REFERENCES raw_repository(id) ON DELETE CASCADE,
+    path           TEXT    NOT NULL,
+    is_bare        INTEGER NOT NULL DEFAULT 0 CHECK (is_bare IN (0,1)),
+    is_worktree    INTEGER NOT NULL DEFAULT 0 CHECK (is_worktree IN (0,1)),
+    last_seen_utc  INTEGER NOT NULL,
+    PRIMARY KEY (repository_id, path)
+) STRICT;
+
+CREATE INDEX raw_repository_path_by_path ON raw_repository_path (path);
+"""
+
+#: `derived_attribution` as of v2 — project_id in place of the free-text placeholder
+#: `0001` left for this feature. A text key cannot satisfy FR-024: renaming a project
+#: would be a delete plus an insert, and the history would silently go elsewhere.
+DERIVED_V2_DDL = """
+CREATE TABLE derived_attribution (
+    id              INTEGER PRIMARY KEY,
+    record_id       INTEGER NOT NULL REFERENCES raw_record(id) ON DELETE CASCADE,
+    project_id      INTEGER NOT NULL REFERENCES user_project(id),
+    rule            TEXT    NOT NULL,
+    evidence        TEXT    NOT NULL CHECK (json_valid(evidence)),
+    derived_at_utc  INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX derived_attribution_record  ON derived_attribution (record_id);
+CREATE INDEX derived_attribution_project ON derived_attribution (project_id);
+"""
+
+#: A fresh store is created at the latest version directly, so `ALL_DDL` is v2.
+ALL_DDL = (RAW_DDL, DERIVED_V2_DDL, USER_DDL, PROJECT_DDL, REPOSITORY_DDL)
+
+#: What `m0001` created, kept so the migration path stays testable from a real v1 store.
+V1_DDL = (RAW_DDL, DERIVED_DDL, USER_DDL)
 
 
 def statements(*blocks: str) -> tuple[str, ...]:
@@ -92,11 +156,44 @@ def statements(*blocks: str) -> tuple[str, ...]:
     Python's sqlite3 issues an implicit COMMIT before running a script, which would
     close the migration's transaction and silently defeat the rollback guarantee that
     FR-021 rests on.
+
+    Splitting must understand ``--`` comments and quoted strings. A naive
+    ``split(";")`` cuts a comment containing a semicolon in half, and the tail — no
+    longer preceded by its ``--`` — becomes bare tokens that fail with a syntax error
+    pointing at an innocent word. The same applies inside a string literal.
     """
     found: list[str] = []
     for block in blocks:
-        for raw in block.split(";"):
-            statement = raw.strip()
-            if statement:
-                found.append(statement)
+        current: list[str] = []
+        in_comment = False
+        in_string = False
+        for char in block:
+            if in_comment:
+                current.append(char)
+                if char == "\n":
+                    in_comment = False
+                continue
+            if in_string:
+                current.append(char)
+                if char == "'":
+                    in_string = False
+                continue
+            if char == "'":
+                in_string = True
+                current.append(char)
+                continue
+            if char == "-" and current and current[-1] == "-":
+                in_comment = True
+                current.append(char)
+                continue
+            if char == ";":
+                statement = "".join(current).strip()
+                if statement:
+                    found.append(statement)
+                current = []
+                continue
+            current.append(char)
+        tail = "".join(current).strip()
+        if tail:
+            found.append(tail)
     return tuple(found)

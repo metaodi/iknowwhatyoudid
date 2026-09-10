@@ -195,10 +195,16 @@ def _withdraw_missing(
     assert batch.seen_source_ids is not None
     assert range_from is not None and range_to is not None
 
+    # A record may declare itself non-withdrawable, and the store honours that rather
+    # than trusting every reader to remember. Some evidence is kept by the source under
+    # a retention policy — git's reflog expires after 90 days — so its disappearance
+    # means "no longer recorded there", never "did not happen". Withdrawing on that
+    # basis would report a retention policy as data loss (research R2).
     candidates = connection.execute(
         "SELECT id, source_id FROM raw_record "
         "WHERE source = ? AND occurred_utc >= ? AND occurred_utc <= ? "
-        "AND withdrawn_on_utc IS NULL",
+        "AND withdrawn_on_utc IS NULL "
+        "AND COALESCE(json_extract(payload, '$.withdrawable'), 1) <> 0",
         (batch.source, range_from, range_to),
     ).fetchall()
 

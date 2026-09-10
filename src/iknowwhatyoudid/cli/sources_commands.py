@@ -13,7 +13,11 @@ from typing import Any
 
 from ..config import findings as f
 from ..config import loader
-from ..config.location import credentials_path_for, resolve_config_path
+from ..config.location import (
+    credentials_path_for,
+    resolve_config_path,
+    resolve_projects_path,
+)
 from ..config.validate import SourceStatus, ValidationReport, validate
 from ..credentials.store import CredentialPresence, CredentialStore
 from ..errors import UsageError
@@ -320,6 +324,8 @@ def ingest(
     store: SourceStateStore | None = None,
     *,
     connection: sqlite3.Connection | None = None,
+    projects: str | None = None,
+    config: str | None = None,
     only: str | None = None,
     dry_run: bool = False,
     sweep: bool = False,
@@ -335,6 +341,17 @@ def ingest(
         dry_run=dry_run,
     )
 
+    # Every recorded activity must land on a project (FR-025). Attribution runs here
+    # rather than inside the run so that `sources/` stays source-agnostic and
+    # `projects/` keeps its inability to read a repository.
+    attributed = 0
+    if connection is not None and not dry_run and report.records_ingested:
+        from ..projects import attribution, mapping as project_mapping
+
+        mapping_path = resolve_projects_path(projects, session.path)
+        loaded, _problems = project_mapping.load(mapping_path)
+        attributed = attribution.attribute(connection, loaded).total
+
     rows = [
         [
             outcome.source_name,
@@ -349,10 +366,24 @@ def ingest(
         for outcome in report.outcomes
     ]
     body = table(["SOURCE", "KIND", "RESULT", ""], rows) or "No sources configured."
+
+    # A part of a source that could not be read is named, every time. The run still
+    # succeeded on everything else, and that is exactly why this must not be quiet.
+    notes = [
+        f"  {outcome.source_name}: skipped {part}"
+        for outcome in report.outcomes
+        for part in outcome.skipped_parts
+    ]
+    if notes:
+        heading = "Skipped, and not recorded:"
+        body += "\n\n" + heading + "\n" + "\n".join(notes)
+
     tail = (
         f"{report.succeeded} succeeded, {report.failed} failed, "
         f"{report.skipped} skipped"
     )
+    if report.skipped_parts:
+        tail += f" · {report.skipped_parts} part(s) skipped"
 
     return Result(
         "ingest",
@@ -367,6 +398,7 @@ def ingest(
                     "failure": o.failure.value if o.failure else None,
                     "detail": o.detail,
                     "records_ingested": o.records_ingested,
+                    "skipped_parts": list(o.skipped_parts),
                 }
                 for o in report.outcomes
             ],
@@ -376,6 +408,7 @@ def ingest(
                 "skipped": report.skipped,
             },
             "mode": mode.value,
+            "attributed": attributed,
         },
         f"{body}\n\n{tail}",
     )
