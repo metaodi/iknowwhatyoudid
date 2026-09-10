@@ -63,7 +63,22 @@ _SAFE_CONFIG = (
     "log.showSignature=false",  # no signature verification, so no keyring, no network
     "core.hooksPath=",  # no repository hook can run
     "protocol.version=0",
+    # Re-encode commit messages to UTF-8 on the way out. A commit may declare its own
+    # encoding, and git is the only thing that knows how to honour that; without this
+    # it hands back the original bytes and leaves us guessing.
+    "i18n.logOutputEncoding=UTF-8",
 )
+
+#: How git's output is decoded, and why it is stated rather than inherited.
+#:
+#: `text=True` decodes with the platform's preferred encoding, which on Windows is the
+#: ANSI codepage — cp1252 here. Real history contains names and subjects that are not
+#: cp1252, and one such byte raised `UnicodeDecodeError` and failed an entire source.
+#: Git's own convention is UTF-8, so that is what we ask for; `replace` means a byte
+#: that still cannot be decoded costs one character of a subject line, never a
+#: repository. Nothing identifying is at risk: hashes, dates and parent lists are ASCII.
+_ENCODING = "utf-8"
+_DECODE_ERRORS = "replace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +179,8 @@ def _invoke(
             env=_environment(),
             capture_output=True,
             text=True,
+            encoding=_ENCODING,
+            errors=_DECODE_ERRORS,
             timeout=timeout,
             check=False,
         )
@@ -216,6 +233,8 @@ def stream_lines(repository: Path, subcommand: str, *args: str) -> Iterator[str]
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding=_ENCODING,
+            errors=_DECODE_ERRORS,
             bufsize=1,
         )
     except OSError as exc:

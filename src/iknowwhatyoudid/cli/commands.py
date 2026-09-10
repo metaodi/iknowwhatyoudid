@@ -267,17 +267,38 @@ def records_query(
     elapsed = records_repo.elapsed(found)
     not_yet = len(found) - len(elapsed)
 
+    # Everything recorded lands on a project, so every view of a record shows which one.
+    # An attribution nobody can see is not correctable, and a project the tool *guessed*
+    # must never read as one the user chose — hence the `(ad hoc)` marker here, as in
+    # every other listing.
+    attributed = derived_repo.projects_for_records(
+        session.connection, [record.id for record in found]
+    )
+
+    def project_of(record_id: int) -> str:
+        entry = attributed.get(record_id)
+        if entry is None:
+            return "—"
+        name, rule = entry
+        return f"{name} (ad hoc)" if rule.endswith("ad-hoc") else name
+
     rows = [
         [
             when(record.occurred_utc),
             record.source,
+            project_of(record.id),
             record.title[:48],
             "withdrawn" if record.withdrawn else "",
         ]
         for record in found
     ]
-    body = table(["WHEN", "SOURCE", "TITLE", ""], rows) or "No records match."
+    body = table(["WHEN", "SOURCE", "PROJECT", "TITLE", ""], rows) or "No records match."
+    unattributed = sum(1 for record in found if record.id not in attributed)
     summary = f"{len(found):,} records"
+    if unattributed:
+        # Visible rather than blank: an unattributed record is a fault to be fixed, not
+        # a cell to be left empty.
+        summary += f" · {unattributed:,} not attributed to any project"
     if not_yet:
         summary += f" · {not_yet:,} not yet elapsed (excluded from elapsed-time totals)"
     human = f"{body}\n\n{summary}"
@@ -293,6 +314,8 @@ def records_query(
                     "source_id": r.source_id,
                     "occurred_utc": r.occurred_utc,
                     "title": r.title,
+                    "project": attributed.get(r.id, (None, None))[0],
+                    "project_rule": attributed.get(r.id, (None, None))[1],
                     "withdrawn": r.withdrawn,
                     "revision": r.revision,
                 }

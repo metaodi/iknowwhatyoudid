@@ -283,14 +283,68 @@ def large(root: Path, count: int, name: str = "large-repo") -> Path:
 
 def _feed(repo: Path, stream: str) -> None:
     env = {**_ENV, "HOME": str(repo.parent), "GIT_CONFIG_GLOBAL": str(repo.parent / ".gitconfig")}
+    _feed_bytes(repo, stream.encode("utf-8"))
+
+
+#: A subject whose UTF-8 bytes end in 0x8F — a continuation byte that is *undefined* in
+#: cp1252. Decoding git's output with the Windows ANSI codepage raises on exactly this,
+#: which is how one real commit took a whole source down.
+PENCIL_SUBJECT = "fix the docs ✏ review pass"
+
+#: Bytes that are not valid UTF-8 either. Git stores what it was given, so a commit made
+#: years ago under a latin-1 locale really can contain these.
+UNDECODABLE_NAME = b"Ren\xe9 O\xdfmann"
+
+
+def with_awkward_encoding(root: Path, name: str = "awkward-encoding") -> Path:
+    """A repository whose history the platform default cannot decode.
+
+    Two commits: one whose subject is valid UTF-8 but not cp1252, and one whose author
+    name is valid in neither. Reading must survive both — a byte nobody can decode is
+    worth one replacement character, never a repository.
+    """
+    repo = _init(root / name)
+    when = BASE_EPOCH
+    me = ME_NAME.encode("utf-8")
+    email = ME_EMAIL.encode("utf-8")
+
+    def stamp(who: bytes, at: int) -> bytes:
+        return b" <" + email + b"> " + str(at).encode("ascii") + b" +0100\n"
+
+    subject = PENCIL_SUBJECT.encode("utf-8")
+    stream = bytearray(b"reset refs/heads/main\n")
+
+    stream += b"commit refs/heads/main\nmark :1\n"
+    stream += b"author " + me + stamp(me, when)
+    stream += b"committer " + me + stamp(me, when)
+    stream += b"data " + str(len(subject)).encode("ascii") + b"\n" + subject + b"\n"
+    stream += b"M 644 inline a.txt\ndata 2\nx\n"
+
+    stream += b"commit refs/heads/main\nmark :2\n"
+    stream += b"author " + UNDECODABLE_NAME + stamp(UNDECODABLE_NAME, when + 60)
+    stream += b"committer " + UNDECODABLE_NAME + stamp(UNDECODABLE_NAME, when + 60)
+    stream += b"data 12\nlatin-1 name\n"
+    stream += b"M 644 inline b.txt\ndata 2\ny\n"
+
+    _feed_bytes(repo, bytes(stream))
+    _run(repo, "reset", "-q", "--hard", "refs/heads/main")
+    return repo
+
+
+def _feed_bytes(repo: Path, stream: bytes) -> None:
+    env = {
+        **_ENV,
+        "HOME": str(repo.parent),
+        "GIT_CONFIG_GLOBAL": str(repo.parent / ".gitconfig"),
+    }
     result = subprocess.run(
         ["git", "fast-import", "--quiet"],
         cwd=repo,
         env=env,
-        input=stream.encode("utf-8"),
+        input=stream,
         capture_output=True,
         check=False,
     )
     if result.returncode != 0:
-        detail = result.stderr.decode(errors='replace')
-        raise RuntimeError(f'git fast-import failed in {repo}: {detail}')
+        detail = result.stderr.decode(errors="replace")
+        raise RuntimeError(f"git fast-import failed in {repo}: {detail}")

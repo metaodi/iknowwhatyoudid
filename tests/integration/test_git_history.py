@@ -431,3 +431,77 @@ def test_a_repository_lost_mid_run_is_named_and_the_others_still_ingest(
     assert stored, "the surviving repositories were still ingested"
     assert "doomed" in out, "the lost repository was not named in the output"
     assert "skipped" in out.lower()
+
+
+# --- history that the platform default cannot decode ---------------------------------
+
+REPLACEMENT = chr(0xFFFD)
+
+
+def test_a_subject_the_ansi_codepage_cannot_decode_is_read_intact(tmp_path: Path) -> None:
+    """The fault that failed a whole source on a real machine.
+
+    `text=True` decodes with the platform's preferred encoding — cp1252 on Windows — and
+    one commit whose subject contained a symbol raised `UnicodeDecodeError`, which the
+    run reported as the entire source failing. Git's convention is UTF-8, so that is
+    what is asked for explicitly.
+    """
+    repo = gitrepos.with_awkward_encoding(tmp_path)
+    subjects = [commit.subject for commit in history.commits(repo)]
+
+    assert gitrepos.PENCIL_SUBJECT in subjects, subjects
+
+
+def test_a_name_no_encoding_can_decode_costs_a_character_not_a_repository(
+    tmp_path: Path,
+) -> None:
+    """Real history contains bytes that are valid in no encoding anyone still uses.
+
+    Refusing to read the repository over one of them would be the wrong trade: the
+    commit still happened, and its hash, time and parents are ASCII and intact.
+    """
+    repo = gitrepos.with_awkward_encoding(tmp_path)
+    commits = list(history.commits(repo))
+
+    assert len(commits) == 2, "both commits were read"
+    mangled = [c for c in commits if REPLACEMENT in c.author_name]
+    assert len(mangled) == 1
+    assert mangled[0].sha, "the parts that are ASCII survived exactly"
+
+
+def test_git_output_is_never_decoded_with_the_platform_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Structural, because the behavioural test only fails on some platforms.
+
+    On Linux the preferred encoding is already UTF-8, so a machine there would never
+    have seen the failure this guards against. What must hold everywhere is that the
+    encoding is *stated*.
+    """
+    import subprocess as sp
+    from typing import Any
+
+    seen: list[dict[str, Any]] = []
+    original_run = sp.run
+    original_popen = sp.Popen
+
+    def spy_run(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return original_run(*args, **kwargs)
+
+    def spy_popen(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return original_popen(*args, **kwargs)
+
+    # Build the repository *before* patching: the spy replaces subprocess globally, and
+    # the fixture builder uses it too.
+    built = gitrepos.plain(tmp_path)
+
+    monkeypatch.setattr(sp, "run", spy_run)
+    monkeypatch.setattr(sp, "Popen", spy_popen)
+    list(history.commits(built.path))
+
+    assert seen, "git was invoked"
+    for kwargs in seen:
+        assert kwargs.get("encoding") == "utf-8", kwargs
+        assert kwargs.get("errors") == "replace", kwargs

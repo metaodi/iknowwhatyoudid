@@ -154,6 +154,12 @@ Reads records back by time range and source (FR-003, User Story 1).
 Withdrawn records are excluded by default and included with the flag (FR-028). Records whose time has not
 yet passed are excluded from elapsed-time totals but still listed, flagged (FR-036).
 
+Columns: `WHEN`, `SOURCE`, `PROJECT`, `TITLE`, and a flag column. **`PROJECT` was added by `0003`** — every
+record lands on a project, and an ad-hoc one is marked `(ad hoc)` here as in every other listing, so the
+tool's guess never reads as the user's decision. The machine form carries `project` and `project_rule`.
+A record with no attribution shows `—` and is counted in the summary line: it is a fault to be seen, not a
+blank cell.
+
 ---
 
 ## `ikwyd derived discard`

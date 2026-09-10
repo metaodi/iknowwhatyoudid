@@ -449,3 +449,70 @@ def test_projects_cannot_read_a_repository() -> None:
 
         assert not (imported & forbidden), f"{module.name} imports {imported & forbidden}"
         assert "git" not in imported, f"{module.name} imports the git package"
+
+
+# --- every view of a record shows its project (FR-035, SC-002, SC-009) ---------------
+
+
+def query(space: Path, *argv: str) -> int:
+    """`records query` reads the store alone; it takes no configuration."""
+    return main([*argv, "--store", str(space / "store.db")])
+
+
+def test_records_query_shows_the_project_of_every_record(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The gap that shipped: records were attributed, and no view said so.
+
+    SC-002 is about the data, but a user only ever sees the views. An attribution
+    nobody can read is not a correctable one, which is what Principle V asks for.
+    """
+    ingest(workspace, capsys)
+
+    query(workspace, "records", "query")
+    out = capsys.readouterr().out
+
+    assert "PROJECT" in out, "the column is missing entirely"
+    assert "acme-migration" in out, "a declared project is named"
+    assert "scratchpad" in out, "an ad-hoc project is named too"
+
+
+def test_records_query_marks_an_ad_hoc_project_as_a_guess(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """SC-009 — in *every* view, not only in `projects list`.
+
+    `scratchpad` is the repository's own name standing in for a project nobody declared.
+    Printing it identically to a declared one would turn the tool's guess into something
+    that reads as the user's decision.
+    """
+    ingest(workspace, capsys)
+
+    query(workspace, "records", "query")
+    out = capsys.readouterr().out
+
+    ad_hoc = [line for line in out.splitlines() if "scratchpad" in line]
+    declared = [line for line in out.splitlines() if "acme-migration" in line]
+    assert ad_hoc and declared
+    assert all("(ad hoc)" in line for line in ad_hoc)
+    assert not any("(ad hoc)" in line for line in declared)
+
+
+def test_the_machine_form_carries_the_project_and_the_rule(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Anything scripting a timesheet needs the project without parsing a table."""
+    import json
+
+    ingest(workspace, capsys)
+
+    query(workspace, "--json", "records", "query")
+    payload = json.loads(capsys.readouterr().out)
+
+    records = payload["data"]["records"]
+    assert records
+    assert all(record["project"] for record in records), "every record names a project"
+    assert {record["project_rule"] for record in records} <= {
+        "mapping:declared",
+        "mapping:ad-hoc",
+    }

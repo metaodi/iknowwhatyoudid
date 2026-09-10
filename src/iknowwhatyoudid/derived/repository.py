@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -78,6 +79,33 @@ def for_record(connection: sqlite3.Connection, record_id: int) -> list[Attributi
         )
         for row in rows
     ]
+
+
+def projects_for_records(
+    connection: sqlite3.Connection, record_ids: Sequence[int]
+) -> dict[int, tuple[str, str]]:
+    """`record id -> (project name, rule)`, in one query rather than one per record.
+
+    A view over a year of activity asks this about thousands of records at once, and
+    asking per record turns a listing into a few thousand round trips.
+    """
+    if not record_ids:
+        return {}
+    found: dict[int, tuple[str, str]] = {}
+    # SQLite caps host parameters (999 by default on older builds), so ask in blocks.
+    block = 500
+    for start in range(0, len(record_ids), block):
+        chunk = list(record_ids[start : start + block])
+        placeholders = ",".join("?" * len(chunk))
+        rows = connection.execute(
+            "SELECT d.record_id, p.name, d.rule FROM derived_attribution d "
+            "JOIN user_project p ON p.id = d.project_id "
+            f"WHERE d.record_id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            found[int(row["record_id"])] = (str(row["name"]), str(row["rule"]))
+    return found
 
 
 def count(connection: sqlite3.Connection) -> int:
