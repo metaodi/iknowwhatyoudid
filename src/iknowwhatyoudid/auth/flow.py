@@ -158,9 +158,17 @@ def _classify(exc: HttpStatusError) -> AuthorisationError:
             remedy="Run `ikwyd sources authorise NAME` to sign in again.",
         )
 
+    # Unrecognised: say exactly what the provider said. This branch is reached precisely
+    # when the tool does *not* understand the refusal, which makes it the one case where
+    # swallowing the provider's own words leaves the user with nothing to act on — and
+    # leaves us with nothing to add a marker for next time.
     return AuthorisationError(
-        "authorisation was refused",
-        remedy="Run `ikwyd sources authorise NAME` to sign in again.",
+        f"authorisation was refused — {detail}",
+        remedy=(
+            "The text above is the provider's own. If it names a missing parameter, the "
+            "application registration and this tool disagree about the flow; if it names "
+            "the grant, run `ikwyd sources authorise NAME` to sign in again."
+        ),
     )
 
 

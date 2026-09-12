@@ -72,6 +72,31 @@ class HttpStatusError(IkwydError):
         self.host = host
 
 
+#: How much of a refusal to keep. An OAuth error body is a short JSON object; anything
+#: longer is a provider's HTML error page, which helps nobody.
+MAX_REFUSAL_CHARACTERS = 500
+
+
+def _refusal(exc: urllib.error.HTTPError) -> str:
+    """What the provider said about refusing, for the message shown to the user.
+
+    `flow._classify` is built on matching the provider's own words — a 400 from a token
+    endpoint means five different things and only the body distinguishes them — so
+    discarding the body made every one of its markers unreachable and left the user with
+    "answered 400" and nothing to act on.
+
+    This never reaches the log: `_log` records host, method and status, and that does not
+    change. It reaches the error message, where `credentials/redaction.py` masks any value
+    the tool knows to be a secret.
+    """
+    try:
+        raw = exc.read()
+    except OSError:  # pragma: no cover — the body is gone; the status still says something
+        return ""
+    text = raw.decode("utf-8", errors="replace").strip()
+    return text[:MAX_REFUSAL_CHARACTERS]
+
+
 def _log(_message: str, **fields: object) -> None:
     """Indirection so a test can capture what would be logged, and assert on it."""
     obs.http_request(
@@ -171,7 +196,7 @@ class Client:
                                 "was changed at the source; try again later."
                             ),
                         ) from exc
-                    raise HttpStatusError(status, host) from exc
+                    raise HttpStatusError(status, host, _refusal(exc)) from exc
                 time.sleep(self._wait_for(exc, backoff))
                 backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
             except urllib.error.URLError as exc:

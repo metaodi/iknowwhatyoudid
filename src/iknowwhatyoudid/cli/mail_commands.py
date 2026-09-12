@@ -17,6 +17,7 @@ asks, not only from the consent screen that receives it.
 
 from __future__ import annotations
 
+import sys
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,6 +137,14 @@ def authorise(
         lines.append("Open this in a browser, then return here:")
         lines.append(f"  {url}")
 
+    # Said **now**, on stderr, rather than gathered into the result. Everything above this
+    # point describes what is about to happen — and the command then blocks for up to five
+    # minutes on a browser round-trip. Held back until the end it arrives after the wait is
+    # over, and if the token exchange then fails it is discarded along with the result,
+    # leaving an error with no account of what led to it.
+    for line in lines:
+        print(line, file=sys.stderr)
+
     received = loopback.wait()
     code = flow.classify_redirect(received, challenge)
 
@@ -168,15 +177,14 @@ def authorise(
         ),
     )
 
-    lines.append("")
-    lines.append(f"Authorised. Token stored in {path} (readable by you alone).")
-    lines.append("Run `ikwyd ingest` to read.")
+    # Only the outcome: the narration above has already been printed as it happened.
     return Result(
         "sources.authorise",
         True,
         session.path,
         {"account": name, "authorised": True, "token_path": str(path)},
-        "\n".join(lines),
+        f"Authorised. Token stored in {path} (readable by you alone).\n"
+        "Run `ikwyd ingest` to read.",
     )
 
 
