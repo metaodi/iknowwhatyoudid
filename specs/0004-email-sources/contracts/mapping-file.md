@@ -1,7 +1,8 @@
 # Contract: correspondents and subjects in `projects.toml`
 
 Extends [`0003`'s mapping contract](../../0003-git-source-projects/contracts/mapping-file.md). Location,
-the rule that **the tool never writes this file**, and "an absent file is valid" are all unchanged.
+"an absent file is valid" are unchanged. The never-writes rule is inherited **as `0005` narrowed it**: the
+tool never *modifies* this file, and `ikwyd init` may create one where none exists.
 
 ## Grammar, extended
 

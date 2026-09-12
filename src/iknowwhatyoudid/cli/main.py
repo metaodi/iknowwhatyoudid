@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from ..errors import EXIT_USAGE, IkwydError
 from ..store.location import resolve_store_path
 from ..sources.state import SqliteSourceStateStore
-from . import commands, mail_commands, projects_commands, sources_commands
+from . import commands, mail_commands, projects_commands, setup_commands, sources_commands
 
 
 def _global_options(*, suppress: bool) -> argparse.ArgumentParser:
@@ -141,12 +141,23 @@ def build_parser() -> argparse.ArgumentParser:
         leaf = project_actions.add_parser(verb, help=helptext, parents=[common])
         leaf.add_argument("--config", help="use this configuration file")
         leaf.add_argument("--projects", help="use this project mapping file")
+    projects_edit = project_actions.add_parser(
+        "edit", help="open the project mapping in your editor", parents=[common]
+    )
+    projects_edit.add_argument("--config", help="use this configuration file")
+    projects_edit.add_argument("--projects", help="use this project mapping file")
+
     rederive = project_actions.add_parser(
         "rederive", help="re-apply the mapping to recorded activity", parents=[common]
     )
     rederive.add_argument("--config", help="use this configuration file")
     rederive.add_argument("--projects", help="use this project mapping file")
     rederive.add_argument("--dry-run", action="store_true")
+
+    sources_edit = source_actions.add_parser(
+        "edit", help="open the sources configuration in your editor", parents=[common]
+    )
+    sources_edit.add_argument("--config", help="use this configuration file")
 
     authorise = source_actions.add_parser(
         "authorise",
@@ -160,6 +171,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the sign-in URL instead of opening a browser, for use over SSH",
     )
+
+    setup = subparsers.add_parser(
+        "init",
+        help="create the configuration files, where none exist yet",
+    )
+    setup.add_argument("--config", help="create them beside this path instead")
+    for option in common._actions:  # the global options apply here too
+        if option.dest != "help":
+            setup._add_action(option)
 
     mail = subparsers.add_parser("mail", help="mail activity")
     mail_actions = mail.add_subparsers(dest="action", required=True)
@@ -276,6 +296,17 @@ def _dispatch_projects(args: argparse.Namespace) -> commands.Result:
 
 
 def _dispatch(args: argparse.Namespace) -> commands.Result:
+    # Answered before any store or configuration is opened: these are the commands you
+    # reach for when there is no store and the configuration will not parse.
+    if args.group == "init":
+        return setup_commands.init(getattr(args, "config", None))
+    if (args.group, getattr(args, "action", None)) == ("sources", "edit"):
+        return setup_commands.edit_sources(getattr(args, "config", None))
+    if (args.group, getattr(args, "action", None)) == ("projects", "edit"):
+        return setup_commands.edit_projects(
+            getattr(args, "config", None), getattr(args, "projects", None)
+        )
+
     if args.group in {"sources", "ingest"}:
         return _dispatch_sources(args)
     if args.group in {"repos", "projects"}:

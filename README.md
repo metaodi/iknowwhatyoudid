@@ -21,15 +21,16 @@ Requires Python 3.12. `uv` provisions it.
 
 ## What works today
 
-Features `0001` (the local store) and `0002` (configurable sources) are implemented: the
-database everything reads and writes, the normalized record shape, migrations,
-corrections, the configuration file, validation, the source-kind registry, credential
-handling, and the CLI around all of it.
+Features `0001` (the local store), `0002` (configurable sources), `0003` (git and
+projects), `0004` (mail) and `0005` (`init` and `edit`) are implemented: the database
+everything reads and writes, the normalized record shape, migrations, corrections, the
+configuration file and the commands that create and open it, validation, the source-kind
+registry, credential handling, and the CLI around all of it.
 
 **Git works.** `git.local` reads commits, branches and merges from your local
 repositories — never over a network, and verified never to modify one. `calendar.*` is
 still a *declaration*: you can configure it and it validates, but it reports
-`not readable` rather than pretending to work. That is feature `0005`.
+`not readable` rather than pretending to work. That is a later feature.
 
 **Mail works, and only mail you sent.** Microsoft 365 and Gmail are read live;
 Hey and any other archive are read from an exported `.mbox`, opened read-only and never
@@ -61,19 +62,31 @@ body, and no `To` or `Cc` — so it cannot supply what a record needs. An export
 ## Configure your sources
 
 ```bash
-cp examples/config.toml "$APPDATA/iknowwhatyoudid/config.toml"   # Windows
+ikwyd init                   # create the three files, wherever they are missing
+ikwyd sources edit           # open config.toml in $VISUAL, $EDITOR, or your default app
+ikwyd projects edit          # open projects.toml the same way
 ikwyd sources kinds          # what can be configured, and the settings each accepts
 ikwyd sources validate       # every fault at once; contacts nothing
 ikwyd sources destinations   # the whole egress surface, before anything is contacted
 ikwyd ingest                 # read from every ready source
 ```
 
+`init` **never overwrites**. There is no `--force`, and a file that already exists is
+reported as left alone without being opened at all — so running it twice, which is what
+you do when you cannot remember whether you ran it once, is safe. It is also the only
+command in the tool that creates a configuration file; everything else, `edit` included,
+only reads.
+
 The configuration file holds **no secrets** — credentials are referenced by name, with
 values in `credentials.toml` beside it. Mail accounts additionally need a `client_id`,
 which is *not* a secret and lives in the configuration: it appears in every sign-in URL.
 The one secret this tool stores is a refresh token, written to `tokens.toml` by
 `ikwyd sources authorise`, created readable by you alone and checked on every read. Which repositories belong to which project goes
-in `projects.toml`, also beside it. The tool never writes any of the three.
+in `projects.toml`, also beside it. `credentials.toml` is created readable by you alone,
+holding placeholders and nothing else; there is deliberately no `credentials edit`, since
+handing a file of secrets to whatever `$EDITOR` happens to name buys nothing. Apart from
+`init` creating a file that is absent, the tool never writes any of the three — what you
+wrote comes back byte for byte, comments and ordering intact.
 
 Everything is recorded against a **project**. Where you have not said which project a
 repository belongs to, the repository's own name is used and marked `(ad hoc)`, so an
@@ -84,7 +97,11 @@ single repository.
 ## Commands
 
 ```bash
-ikwyd sources authorise NAME  # sign in to a mail account, once (the only interactive command)
+ikwyd init                    # create config.toml, projects.toml and credentials.toml
+ikwyd sources edit            # open the sources configuration in your editor
+ikwyd projects edit           # open the project mapping in your editor
+
+ikwyd sources authorise NAME  # sign in to a mail account, once
 ikwyd mail list               # mail you sent, with the project it landed on
 ikwyd mail correspondents     # who contributes most, and who is not mapped yet
 
@@ -118,16 +135,25 @@ ikwyd derived discard         # drop derived attributions; raw and corrections u
 Every command takes `--json`, writes results to stdout and diagnostics to stderr, and
 exits non-zero on failure. `--store PATH` points at a different store.
 
+Three commands are **interactive**: `sources authorise` opens a browser, and the two
+`edit` commands open an editor. None of them is reachable from `ingest`, which is the
+command you schedule — a nightly run can never end up sitting on a consent screen or
+waiting for someone to close a window.
+
 ## Where things live
 
 | What | Path |
 |------|------|
+| Configuration | `%APPDATA%\iknowwhatyoudid\` (Windows) |
+| | `~/Library/Application Support/iknowwhatyoudid/` (macOS) |
+| | `$XDG_CONFIG_HOME/iknowwhatyoudid/`, else `~/.config/…` (Linux) |
 | Store | `%LOCALAPPDATA%\iknowwhatyoudid\store.db` (Windows) |
 | | `~/Library/Application Support/iknowwhatyoudid/store.db` (macOS) |
 | | `$XDG_DATA_HOME/iknowwhatyoudid/store.db`, else `~/.local/share/…` (Linux) |
 | Log | beside the store |
 
-The store is created on first use, owner-only, with no setup step.
+The store is created on first use, owner-only, with no setup step. The configuration
+directory is created by `ikwyd init`, which is the one command that writes there.
 
 ## A few things worth knowing
 

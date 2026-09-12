@@ -93,6 +93,27 @@ updated rather than left to become quietly false, and what actually matters is k
 restated: **no interactive command may be reachable from `ingest`**, so a scheduled run
 never blocks on a browser or an editor.
 
+### Post-implementation re-check (T048)
+
+Every gate above was re-evaluated against the code as shipped, by checking rather than by
+re-reading the table:
+
+| Gate | Checked how | Result |
+|---|---|---|
+| No network | The AST of `cli/editor.py`, `cli/setup_commands.py`, `config/bootstrap.py` and `templates/__init__.py` imports nothing in `NETWORK_MODULES`; `test_init.py::test_offline_and_without_a_store` runs every command with sockets forbidden | PASS |
+| No store access | The same four modules import no `sqlite3` and nothing under `store/`; the offline test asserts no `.db` is created anywhere | PASS |
+| No source touched | `test_editor_command.py::test_the_module_never_reads_the_file_it_opens` — `editor.py` calls no `read_text`, `read_bytes`, `open` or `load` at all | PASS |
+| No credential value written | `credentials.toml` is created from a placeholder template, owner-restricted before content; `test_templates.py` asserts the template holds nothing resembling a secret | PASS |
+| Templates hold placeholders only | `test_templates.py::test_every_template_uses_obvious_placeholders`, `::test_no_template_carries_a_real_value` | PASS |
+| `--json` on all three commands | `ikwyd init --json`, `sources edit --json`, `projects edit --json` each emit the shared envelope; run by hand | PASS |
+| No new dependency | `pyproject.toml` still lists only `tzdata; sys_platform == 'win32'` | PASS |
+| The claim corrected | `cli/mail_commands.py` no longer counts interactive commands; it states the rule, and `test_edit.py::test_not_reachable_from_ingest` enforces it over the import closure | PASS |
+
+One thing changed in the code as a result of this pass rather than of a task: SC-009 says no
+failure leaves a partially written file, and a failed write left the empty file behind.
+`config/bootstrap.py` now removes what it started. See
+[quickstart.md](./quickstart.md#every-success-criterion-and-the-test-that-asserts-it).
+
 ## Project Structure
 
 ### Documentation (this feature)

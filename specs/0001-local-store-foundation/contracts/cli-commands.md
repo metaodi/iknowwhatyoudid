@@ -31,6 +31,61 @@ diagnostics to **stderr**, offers `--json`, and exits non-zero on failure (Princ
 and has no business roaming. Note this differs from `0002`'s **configuration** file, which is
 hand-authored and does belong in roaming `APPDATA`.
 
+## Configuration location (added by `0005`)
+
+| Platform | Default |
+|----------|---------|
+| Windows | `%APPDATA%\iknowwhatyoudid\` |
+| macOS | `~/Library/Application Support/iknowwhatyoudid/` |
+| Linux | `$XDG_CONFIG_HOME/iknowwhatyoudid/`, else `~/.config/…` |
+
+Three files live there, all beside each other so that `--config` selects a whole
+configuration rather than one file whose mapping and secrets come from somewhere else:
+`config.toml` (`0002`), `projects.toml` (`0003`), `credentials.toml` (`0002`).
+
+---
+
+## `ikwyd init` (added by `0005`)
+
+Creates whichever of the three files are missing, and **never** overwrites one that
+exists. Each file is decided on its own: one present and two absent creates two and
+leaves one. There is deliberately no `--force`, `--overwrite` or `--replace`, and
+[a test walks the parser](../../0005-config-bootstrap/contracts/amendments.md) to keep it
+that way.
+
+| Option | Effect |
+|--------|--------|
+| `--config PATH` | Create the files beside this path instead of the default |
+
+Exit code `0` when every file is either created or left alone — "everything was already
+there" is a success, so `ikwyd init && ikwyd sources validate` works. Exit code `1` only
+when a file that should have been created could not be.
+
+`credentials.toml` is created **owner-readable before any content is written**, and holds
+placeholders only. Nothing is prompted for, generated, or invented.
+
+This is the only command in the tool that creates a configuration file.
+
+## `ikwyd sources edit`, `ikwyd projects edit` (added by `0005`)
+
+Hands one file to `$VISUAL`, then `$EDITOR`, then the operating system's default
+application for the file, and does nothing once the editor closes — no validation, no
+ingestion. Validating automatically only works when the editor blocks, and a graphical
+editor that returns immediately would report on a file the user had not finished writing.
+
+| Option | Effect |
+|--------|--------|
+| `--config PATH` | Which configuration (and, for `projects edit`, which directory) |
+| `--projects PATH` | `projects edit` only: open this mapping instead |
+
+The file's contents are never read, which is precisely why a configuration too broken to
+parse is the one you can still open. A file that does not exist is **not created**: the
+error names `ikwyd init`. No editor at all is an error that prints the path, never a
+silent success.
+
+There is deliberately no `credentials edit`: handing a file of secrets to whatever
+`$EDITOR` happens to name is a risk with no matching benefit.
+
 ---
 
 ## `ikwyd store info`
@@ -181,6 +236,7 @@ irreplaceable data does not share a code path with the two regenerable ones.
 |-----------|-------------|
 | No socket is opened by any command | FR-023, SC-001 |
 | Nothing is written outside the tool's own data directory | FR-001 |
+| …and, since `0005`, its own **configuration** directory — `init` only, and only where no file exists | `0005` FR-004 |
 | The store is never deleted or overwritten on the tool's initiative | FR-026 |
 | No credential reaches the store or the log | FR-024, FR-041 |
 | No record content reaches the log — only identifiers and counts | FR-041 |

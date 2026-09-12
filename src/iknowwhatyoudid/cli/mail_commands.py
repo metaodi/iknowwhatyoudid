@@ -1,9 +1,14 @@
 """`ikwyd sources authorise` and `ikwyd mail …`.
 
-`authorise` is the **only interactive command in the tool**. `ingest` never opens a
-browser: a scheduled or scripted run must never block waiting for one, and a person who
-set up a nightly job should not discover it has been sitting on a consent screen since
-Tuesday.
+`authorise` is interactive — and since `0005` it is not the only one, so the claim worth
+making is not a count but a rule: **no interactive command is reachable from `ingest`**.
+`ingest` never opens a browser and never opens an editor. A scheduled or scripted run must
+never block waiting for either, and a person who set up a nightly job should not discover
+it has been sitting on a consent screen since Tuesday.
+
+The rule is asserted over the import closure in
+`tests/integration/test_edit.py::test_not_reachable_from_ingest`, which also fails if a
+fourth interactive command appears without being considered here.
 
 It also names the scope in plain words *before* opening the browser. The user is about to
 grant access to their mail; they should hear what is being asked for from the tool that

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from iknowwhatyoudid.cli import editor
 from iknowwhatyoudid.cli.main import main
 
 FIXTURES = Path("tests/fixtures/configs")
@@ -201,14 +202,37 @@ def test_global_flags_work_before_or_after_the_subcommand(
     assert json.loads(before)["command"] == json.loads(after)["command"]
 
 
-def test_no_command_ever_writes_the_configuration_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_nothing_the_user_wrote_is_ever_changed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-002, asserted across the whole surface rather than one command."""
+    """FR-004, asserted across the whole surface rather than one command.
+
+    `0002` FR-002 and `0003` FR-029 said the tool never writes these files at all. `0005`
+    [narrowed that](../../specs/0005-config-bootstrap/contracts/amendments.md) so `init`
+    may create one that is absent — and this test is what keeps the narrowing from
+    quietly becoming a relaxation. The property it asserts is the one those requirements
+    were protecting all along: **a file the user wrote comes back exactly as they left
+    it**, byte for byte, comments and ordering intact.
+
+    So all three files are present before anything runs, and all three are compared
+    afterwards — including `credentials.toml`, which no command may open and none may
+    replace.
+    """
     config = tmp_path / "config.toml"
     shutil.copy(FIXTURES / "valid.toml", config)
-    before = config.read_bytes()
+    projects = tmp_path / "projects.toml"
+    projects.write_text(
+        "# a comment the user wrote\n[[projects]]\nname = 'Something'\n", encoding="utf-8"
+    )
+    credentials = tmp_path / "credentials.toml"
+    credentials.write_text("# not a real secret\ntoken = 'left-alone'\n", encoding="utf-8")
+
+    before = {path: path.read_bytes() for path in (config, projects, credentials)}
     store = str(tmp_path / "store.db")
+
+    # `edit` hands the file to an editor; substituted, so the suite spawns nothing.
+    monkeypatch.setattr(editor, "launch", lambda command, path: editor.Outcome(exit_code=0))
+    monkeypatch.setenv("EDITOR", "notepad")
 
     for argv in (
         ["sources", "list"],
@@ -217,8 +241,14 @@ def test_no_command_ever_writes_the_configuration_file(
         ["sources", "check", "recorded-day"],
         ["sources", "kinds"],
         ["ingest"],
+        ["init"],  # every file already exists: it must leave all three alone
+        ["sources", "edit"],
+        ["projects", "edit"],
+        ["projects", "list"],
+        ["projects", "validate"],
     ):
         main([*argv, "--config", str(config), "--store", store])
         capsys.readouterr()
 
-    assert config.read_bytes() == before
+    for path, content in before.items():
+        assert path.read_bytes() == content, path.name

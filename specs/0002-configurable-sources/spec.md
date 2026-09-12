@@ -184,7 +184,14 @@ configuration file.
 - **FR-001**: System MUST read the set of configured sources from a single human-editable text file, and
   MUST NOT require any other step to make a source known to the tool.
 - **FR-002**: System MUST look for that file at one documented default location, MUST report that exact
-  path when the file is absent, and MUST NOT create, rewrite, or reformat the file on the user's behalf.
+  path when the file is absent, and MUST NOT **modify, rewrite, reformat, or reorder** a file the user has
+  written.
+  > **Amended by `0005`.** This requirement originally also forbade *creating* the file. It was narrowed so
+  > that `ikwyd init` may create one where none exists — which destroys nothing — while everything it was
+  > actually protecting stays absolute: a file the user wrote must come back exactly as they left it. There
+  > is no flag that overwrites. See
+  > [`0005`'s amendments contract](../0005-config-bootstrap/contracts/amendments.md), which also records
+  > the three things that would make this narrowing wrong.
 - **FR-003**: Users MUST be able to point the tool at a different configuration file, so that alternative
   configurations can be kept side by side.
 - **FR-004**: System MUST treat a configuration it cannot parse as fatal for the run: it MUST report the

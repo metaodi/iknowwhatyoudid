@@ -10,8 +10,11 @@
 
 Overridable with `--projects PATH`, alongside `--config`.
 
-**The tool never writes this file** (FR-029). As with `config.toml`, `tomllib` is read-only by
-construction, so there is no write path to reach for.
+**The tool never modifies this file** (FR-029). As with `config.toml`, `tomllib` is read-only by
+construction, so there is no parse-and-rewrite path to reach for.
+
+**Amended by `0005`**: `ikwyd init` may **create** it where none exists, and `ikwyd projects edit` opens it
+in your editor. Neither changes a file that is already there.
 
 **An absent file is valid** (FR-030). Every repository then falls back to its own ad-hoc project, which is
 the state a new user starts in — the tool works before it is configured, and mapping is how you improve it.

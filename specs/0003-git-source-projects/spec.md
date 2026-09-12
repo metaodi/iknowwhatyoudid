@@ -226,7 +226,11 @@ reported discovery matches expectation exactly and that each repository is recor
 - **FR-028**: The repository-to-project mapping MUST live in its own hand-edited file, separate from the
   sources configuration, so that a change to what activity *means* cannot invalidate the configuration
   that says where to read *from*.
-- **FR-029**: System MUST NOT create, rewrite, or reformat that file.
+- **FR-029**: System MUST NOT **modify, rewrite, reformat, or reorder** that file once the user has
+  written it.
+  > **Amended by `0005`**, exactly as `0002` FR-002 was: creating a mapping where none exists is permitted
+  > to `ikwyd init` and destroys nothing; changing one the user wrote remains forbidden, with no flag that
+  > would. See [`0005`'s amendments contract](../0005-config-bootstrap/contracts/amendments.md).
 - **FR-030**: An absent mapping file MUST be valid, and MUST result in every repository falling back to its
   own ad-hoc project rather than in an error.
 - **FR-031**: The mapping file MUST be validated with the same reporting as the sources configuration —

@@ -1,7 +1,8 @@
 # Contract: mail accounts in `config.toml`
 
 Extends [`0002`'s configuration contract](../../0002-configurable-sources/contracts/config-file.md). The
-grammar, the location, and the rule that **the tool never writes this file** are unchanged.
+grammar and the location are unchanged. The never-writes rule is inherited **as `0005` narrowed it**: the
+tool never *modifies* this file, and `ikwyd init` may create one where none exists.
 
 ## Registered kinds after this feature
 

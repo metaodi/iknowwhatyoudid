@@ -137,17 +137,26 @@ def test_only_the_allow_list_modules_start_a_process() -> None:
     allow-list meaningful — otherwise a second call site could simply not use it. Mail adds
     no third-party binary: the `hey` CLI was investigated and rejected (research R1).
     """
-    # Two modules legitimately start a program, and each is a door with a lock on it:
+    # Three modules legitimately start a program, and each is a door with a lock on it:
     #   git/binary.py            — 0003's read-only git allow-list
     #   protection/encryption.py — 0001's at-rest probe (`manage-bde`, `fdesetup`,
     #                              `lsblk`), which reads a status and nothing else
-    allowed = {"git/binary.py", "protection/encryption.py"}
+    #   cli/editor.py            — 0005's editor launcher
+    #
+    # The third lock is a **different shape**, which is why it is written out rather than
+    # filed under the same rule. An editor cannot be allow-listed: the command is the
+    # user's own, chosen in their own environment, and the tool has no basis for approving
+    # `vim` and refusing `hx`. What is asserted instead is that the tool never *constructs*
+    # a command — `shell=False`, the path appended as the last argument, nothing
+    # interpolated (research R4). `tests/unit/test_editor_command.py` checks that through
+    # the AST; this test only records that the door exists.
+    allowed = {"git/binary.py", "protection/encryption.py", "cli/editor.py"}
     offenders = {
         relative(path): sorted(imported_modules(path) & PROCESS_MODULES)
         for path in modules_under()
         if imported_modules(path) & PROCESS_MODULES and relative(path) not in allowed
     }
-    assert offenders == {}, f"modules starting a process outside the two allowed: {offenders}"
+    assert offenders == {}, f"modules starting a process outside the three allowed: {offenders}"
 
 
 # --- re-derivation cannot read a source -----------------------------------------------

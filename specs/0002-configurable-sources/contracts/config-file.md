@@ -9,7 +9,13 @@
 | macOS | `~/Library/Application Support/iknowwhatyoudid/config.toml` |
 | Linux | `$XDG_CONFIG_HOME/iknowwhatyoudid/config.toml`, else `~/.config/iknowwhatyoudid/config.toml` |
 
-The tool **never writes this file** (FR-002). There is no command that creates, edits, or reformats it.
+The tool **never modifies this file** (FR-002). Nothing it does will change, reformat or reorder a line
+you wrote.
+
+**Amended by `0005`**: `ikwyd init` may **create** this file where none exists, and `ikwyd sources edit`
+opens it in your editor without reading or writing it. Neither touches a file that is already there, and no
+flag makes them — there is deliberately no `--force`. `tomllib` is still read-only by construction, so the
+tool has no parse-and-rewrite path to reach for.
 
 ---
 

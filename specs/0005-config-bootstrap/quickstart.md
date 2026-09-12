@@ -21,7 +21,7 @@ uv run pytest              # must be green
 **The guarantee the requirement amendment rests on**, and the first thing to test.
 
 ```bash
-uv run pytest tests/integration/test_init.py -k existing -v
+uv run pytest tests/integration/test_init.py -k "existing or overwrite" -v
 ```
 
 Write all three files with known content — including a `credentials.toml` holding a
@@ -35,7 +35,7 @@ in [contracts/amendments.md](./contracts/amendments.md) quietly becoming a relax
 ## Scenario 2 — the whole-surface test, extended (FR-004)
 
 ```bash
-uv run pytest tests/integration/test_sources_cli.py -k writes -v
+uv run pytest tests/integration/test_sources_cli.py -k "ever_changed" -v
 ```
 
 `0002`'s `test_no_command_ever_writes_the_configuration_file` **stays** and grows to cover
@@ -48,7 +48,7 @@ ever changed*. It is the same test doing a better-stated job, not a weaker one.
 ## Scenario 3 — a fresh configuration works (US1, FR-005 to FR-013, SC-001, SC-005)
 
 ```bash
-uv run pytest tests/integration/test_init.py -k fresh -v
+uv run pytest tests/integration/test_init.py \n  -k "appear or outside_it or shipped_templates or freshly or finds_them" -v
 ```
 
 | Assertion | Requirement |
@@ -67,7 +67,8 @@ by hand rather than by any test. `init` makes these files the first thing a new 
 ## Scenario 4 — the credentials file (FR-014 to FR-017, SC-005a, SC-005b)
 
 ```bash
-uv run pytest tests/integration/test_init.py -k credentials -v
+uv run pytest tests/integration/test_init.py -k "credential or permissions_are_applied" -v
+uv run pytest tests/integration/test_edit.py -k credentials -v
 ```
 
 | Assertion | Why |
@@ -79,6 +80,10 @@ uv run pytest tests/integration/test_init.py -k credentials -v
 | No command exists that opens it in an editor | FR-027, SC-007a |
 
 ## Scenario 5 — per-file outcomes (FR-010 to FR-012, SC-003)
+
+```bash
+uv run pytest tests/integration/test_init.py   -k "reported or json_form or two_absent or twice or what_to_do_next" -v
+```
 
 Every combination of present and absent across three files, verifying that each is decided
 independently:
@@ -172,6 +177,10 @@ assert the templates are in it.** Marked `slow`; it is the only test here that r
 
 ## Scenario 10 — nothing else is disturbed (FR-028 to FR-031, SC-010, SC-011)
 
+```bash
+uv run pytest tests/integration/test_init.py -k "offline or isolation" -v
+```
+
 Run every command in this feature with sockets forbidden and the store path pointed at a
 file that does not exist. All succeed. This feature opens no database and contacts nothing.
 
@@ -179,6 +188,34 @@ Then the isolation check `0004` established: snapshot the **real** configuration
 directories, run everything against a temporary one, assert nothing in the real ones changed.
 
 ---
+
+## Every success criterion, and the test that asserts it
+
+Filled in after running the scenarios above by hand (T047). No criterion is left resting on
+prose.
+
+| SC | Asserted by |
+|---|---|
+| SC-001 — installed tool to validating configuration in one command | `test_init.py::test_a_freshly_created_configuration_validates` |
+| SC-002 — every existing file byte-identical | `test_init.py::test_existing_files_are_byte_identical_afterwards`, `test_sources_cli.py::test_nothing_the_user_wrote_is_ever_changed` |
+| SC-003 — a second run changes nothing and exits `0` | `test_init.py::test_running_it_twice_changes_nothing_the_second_time` |
+| SC-004 — 0 options that would overwrite | `test_init.py::test_no_option_exists_that_would_overwrite` |
+| SC-005 — a fresh configuration validates with zero errors | `test_init.py::test_a_freshly_created_configuration_validates`, `::test_a_freshly_created_mapping_validates` |
+| SC-005a — credentials readable by its owner alone | `test_init.py::test_the_credentials_file_is_readable_by_its_owner_alone`, `::test_permissions_are_applied_before_any_content` |
+| SC-005b — 0 credential values written, prompted for or generated | `test_init.py::test_nothing_resembling_a_credential_is_written`, `test_templates.py::test_the_credentials_template_holds_no_value_resembling_a_secret` |
+| SC-006 — everything needing attention is a recognisable placeholder | `test_templates.py::test_every_template_uses_obvious_placeholders` |
+| SC-007 — both edit commands open the correct file | `test_edit.py::test_sources_edit_hands_over_the_configuration_path`, `::test_projects_edit_hands_over_the_mapping_path` |
+| SC-007a — 0 commands open the credentials file | `test_edit.py::test_no_command_opens_the_credentials_file`, `::test_the_editable_files_are_exactly_the_two` |
+| SC-008 — a file opened for editing is byte-identical afterwards | `test_edit.py::test_the_file_is_byte_identical_afterwards` |
+| SC-009 — every failure names the path and what to do, and leaves no partial file | `test_init.py::test_a_failed_write_leaves_no_file_at_all`, `::test_a_failed_write_says_which_file_and_why`, `::test_a_directory_that_cannot_be_created_is_reported`, `test_edit.py::test_a_missing_file_is_not_created_and_init_is_named`, `::test_no_editor_at_all_prints_the_path_and_says_so` |
+| SC-010 — 0 network connections | `test_init.py::test_offline_and_without_a_store` |
+| SC-011 — 0 commands read or write the store | `test_init.py::test_offline_and_without_a_store` |
+| SC-012 — the setup command completes in under a second | `test_init.py::test_init_completes_in_well_under_a_second` |
+
+**SC-009 changed the code.** Writing its test found that a failed write left the empty file
+behind, which a later `init` would have reported as "left alone" forever. `config/bootstrap.py`
+now removes what it started — safe, because an existing file returns before the file is
+touched, so the only file it can ever delete is the one that call just made.
 
 ## Known limits at the end of this feature
 
