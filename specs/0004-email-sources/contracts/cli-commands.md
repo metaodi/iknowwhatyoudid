@@ -21,8 +21,8 @@ Run `ikwyd ingest` to read.
 
 - **The only interactive command in the tool.** `ingest` never opens a browser: a scripted or scheduled run
   must never block waiting for one.
-- **Not needed for `mail.hey`.** Sign in with `hey` itself; this tool never holds that credential. Running
-  `authorise` on a Hey account says so and exits zero.
+- **Not needed for `mail.hey` or `mail.mbox`.** Both read a file you exported; there is nothing to
+  authorise. Running `authorise` on one says so and exits zero.
 - `--no-browser` prints the URL instead of opening it, for use over SSH.
 - Naming the scope in plain words before the browser opens is deliberate. The user is about to grant access
   to their mail; they should be told what is being asked for by the tool that asks, not only by the consent
@@ -60,9 +60,9 @@ Adds, for each mail account: whether `addresses` is present and well-formed, whe
 referenced, and whether a token exists. **Contacts nothing** — `0002`'s rule that validation is offline and
 fast is unchanged.
 
-`kind = "mail.hey"` additionally checks that the `hey` binary is present and new enough — a cheap
-`hey --version`, which contacts nothing. Absent or too old is a finding naming the install command, not a
-failure of the run.
+`kind = "mail.hey"` and `kind = "mail.mbox"` both require `paths`. Validation does **not** open the file —
+a missing archive is reported when the source is read, not when the configuration is checked, so
+`sources validate` stays offline and fast.
 
 ## Changed: `ikwyd sources check NAME`
 
@@ -75,7 +75,7 @@ Contacts the account and reports one of five states, which FR-010 requires to be
 | `credential expired` | Refresh rejected | `ikwyd sources authorise NAME` |
 | `administrator approval required` | The tenant does not permit user consent | Ask IT to approve the application |
 | `unreachable` | Network or provider fault | Try later; nothing is wrong with the configuration |
-| `tool missing` | (`mail.hey`) `hey` is not installed, or not signed in | Install it, then run `hey` once to sign in |
+| `archive not found` | (`mail.hey`, `mail.mbox`) a path in `paths` names no file | Export again, or correct the path |
 
 Conflating the middle three is the failure mode this table exists to prevent: each needs a different action,
 and "authentication failed" tells the user none of them.

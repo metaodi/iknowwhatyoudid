@@ -44,7 +44,7 @@ def test_json_parses_standalone_with_the_shared_envelope(
     assert code == 0
     assert payload["schema"] == "iknowwhatyoudid/v1"
     assert payload["command"] == "sources.list"
-    assert len(payload["data"]["sources"]) == 4
+    assert len(payload["data"]["sources"]) == 5
     assert "findings" in payload
 
 
@@ -115,7 +115,17 @@ def test_destinations_lists_the_whole_egress_surface(
         for row in payload["data"]["destinations"]
         if row["destination"] != "none (local only)"
     }
-    assert reachable == {"Microsoft Graph", "Hey IMAP"}
+    # `0004` replaced the placeholder destinations with the real ones, and corrected
+    # "Hey IMAP" — Hey has no IMAP, and the kind is read through its official CLI.
+    assert reachable == {
+        "graph.microsoft.com",
+        "login.microsoftonline.com",
+        "gmail.googleapis.com",
+        "oauth2.googleapis.com",
+    }
+    assert not any("IMAP" in destination for destination in reachable), (
+        "a destination that does not exist was being advertised"
+    )
 
 
 def test_listing_destinations_contacts_nothing(

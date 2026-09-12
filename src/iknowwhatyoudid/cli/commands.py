@@ -13,6 +13,7 @@ from typing import Any
 from ..corrections import portable
 from ..corrections import repository as corrections_repo
 from ..derived import repository as derived_repo
+from ..projects import attribution
 from ..errors import IkwydError, UsageError
 from ..obs import logging as obs
 from ..protection import encryption, permissions
@@ -280,7 +281,10 @@ def records_query(
         if entry is None:
             return "—"
         name, rule = entry
-        return f"{name} (ad hoc)" if rule.endswith("ad-hoc") else name
+        # Checked against the declared set, not by matching the end of the string:
+        # `0004` added `mapping:ad-hoc-domain`, which a suffix test for "ad-hoc" silently
+        # missed, and an unmarked guess reads exactly like a decision the user made.
+        return f"{name} (ad hoc)" if rule in attribution.AD_HOC_RULES else name
 
     rows = [
         [

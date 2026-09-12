@@ -18,6 +18,7 @@ Produced by `mail/message.py` from a provider's raw headers, and the only thing 
 | `subject` | text | `Subject` | Verbatim, including an empty string |
 | `has_attachments` | bool | `hasAttachments`, or presence of a multipart part | The **fact** only — never a name, size or content |
 | `account` | text | configuration | The source name (FR-030) |
+| `recipients` | list | `To`, `Cc` | `[address, role]` pairs, mirrored into `raw_correspondent` — see [data-model.md](../data-model.md) for why both |
 | `provider` | text | — | `graph`, `gmail`, `hey`, `mbox` — diagnostics only |
 
 ## Fields that must never exist

@@ -5,7 +5,7 @@ See specs/0001-local-store-foundation/contracts/schema.md.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 #: STRICT tables need SQLite 3.37.
 MINIMUM_SQLITE = (3, 37, 0)
@@ -142,11 +142,58 @@ CREATE INDEX derived_attribution_record  ON derived_attribution (record_id);
 CREATE INDEX derived_attribution_project ON derived_attribution (project_id);
 """
 
-#: A fresh store is created at the latest version directly, so `ALL_DDL` is v2.
-ALL_DDL = (RAW_DDL, DERIVED_V2_DDL, USER_DDL, PROJECT_DDL, REPOSITORY_DDL)
+# --- v3: correspondents (feature 0004) -----------------------------------------------
+
+CORRESPONDENT_DDL = """
+-- Everyone the user has sent mail to. In the RAW region: an address is what a source
+-- said, not something the user declared.
+--
+-- A table rather than a field in a payload because FR-054 asks which correspondents
+-- contribute most to a project, and that is a group-by. Answering it by parsing every
+-- record's JSON would be slow, untypable, and impossible to index.
+CREATE TABLE raw_correspondent (
+    id              INTEGER PRIMARY KEY,
+    address         TEXT    NOT NULL UNIQUE,
+    display_name    TEXT,
+    domain          TEXT    NOT NULL,
+    first_seen_utc  INTEGER NOT NULL
+) STRICT;
+
+-- Domain rules match on it and the ad-hoc project fallback counts it, so it is stored
+-- rather than re-split from the address on every row.
+CREATE INDEX raw_correspondent_domain ON raw_correspondent (domain);
+
+-- Which addresses appeared on which message, and how. A broadcast to fifty people is
+-- fifty rows, deliberately: truncating would hide that it was a broadcast.
+--
+-- There is no 'bcc' role. It names people the other recipients were not told about, it
+-- is the most sensitive field in a header, and attribution has no use for it.
+CREATE TABLE raw_record_correspondent (
+    record_id         INTEGER NOT NULL REFERENCES raw_record(id) ON DELETE CASCADE,
+    correspondent_id  INTEGER NOT NULL REFERENCES raw_correspondent(id),
+    role              TEXT    NOT NULL CHECK (role IN ('sender','to','cc')),
+    PRIMARY KEY (record_id, correspondent_id, role)
+) STRICT;
+
+CREATE INDEX raw_record_correspondent_by_correspondent
+    ON raw_record_correspondent (correspondent_id);
+"""
+
+#: A fresh store is created at the latest version directly, so `ALL_DDL` is v3.
+ALL_DDL = (
+    RAW_DDL,
+    DERIVED_V2_DDL,
+    USER_DDL,
+    PROJECT_DDL,
+    REPOSITORY_DDL,
+    CORRESPONDENT_DDL,
+)
 
 #: What `m0001` created, kept so the migration path stays testable from a real v1 store.
 V1_DDL = (RAW_DDL, DERIVED_DDL, USER_DDL)
+
+#: What a store looked like after `m0002`, for the same reason.
+V2_DDL = (RAW_DDL, DERIVED_V2_DDL, USER_DDL, PROJECT_DDL, REPOSITORY_DDL)
 
 
 def statements(*blocks: str) -> tuple[str, ...]:

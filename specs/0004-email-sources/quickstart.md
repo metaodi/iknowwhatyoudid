@@ -12,25 +12,11 @@ uv run mypy src tests      # must be clean
 uv run pytest              # must be green
 ```
 
-Fixtures live in `tests/fixtures/mail/` (archives) and `tests/fixtures/responses/` (recorded Graph and
-Gmail JSON). Every fixture body contains the sentinel string `SENTINEL-BODY-MUST-NEVER-BE-STORED`, and every
+Fixtures live in `tests/fixtures/mail/` (archives, built by `messages.py`) and
+`tests/fixtures/responses/` (recorded Graph and Gmail JSON). Every fixture body contains the sentinel string `SENTINEL-BODY-MUST-NEVER-BE-STORED`, and every
 attachment is named `SENTINEL-ATTACHMENT.pdf`. Several scenarios below search the entire store for those.
 
 ---
-
-## Scenario 0 — the `hey` CLI cannot send (US4, FR-013, Principle II)
-
-```bash
-uv run pytest tests/integration/test_mail_readonly.py -k hey -v
-```
-
-Assert that `mail/hey_cli.py` refuses every mutating subcommand — `compose`, `reply`, `event`, `setup` —
-with `HeyCommandNotAllowedError`, and that it is the **only** module in the codebase importing `subprocess`,
-checked by inspecting imports through the AST rather than by grepping text (which `0003` learned to distrust
-when a docstring matched).
-
-Assert too that `thread read`, though allow-listed as read-only, is **not invoked by the reader** — because
-it returns bodies, and FR-023 for Hey rests on never asking for one.
 
 ## Scenario 1 — nothing is written, anywhere (US1, FR-013, FR-014, SC-002, SC-003)
 
@@ -76,8 +62,9 @@ fetched, not fetched and discarded.
 uv run pytest tests/integration/test_mail_shape.py -v
 ```
 
-The same assertions run **unchanged** against a Graph fixture, a Gmail fixture, a recorded `hey search
---json` output and an `.mbox` fixture. If any provider needs its own assertion, FR-028 is broken.
+The same assertions run **unchanged** against a Graph fixture, a Gmail fixture and an `.mbox` fixture
+read once as `mail.mbox` and once as `mail.hey`. If any provider needs its own assertion, FR-028 is
+broken.
 
 Includes: an offset-preserving instant (`+0100` stays `+0100`), an empty subject recorded as empty, a
 fifty-recipient broadcast recorded in full, an encoded-word subject decoded, and a message with no `Date`
@@ -182,14 +169,51 @@ Ingest, then forbid sockets entirely and run `mail list`, `mail correspondents`,
 
 ---
 
+## Every success criterion, and the test that asserts it
+
+Recorded here so a criterion cannot quietly lose its test (T082). Paths are relative to
+`tests/`.
+
+| Criterion | Test |
+|---|---|
+| SC-001 unconfigured to visible mail | `integration/test_mail_isolation.py::test_no_command_touches_the_real_configuration_or_data_directories` walks the whole path: configure, ingest, list |
+| SC-002 everything attributed | `integration/test_mail_attribution.py::test_every_message_carries_a_project` |
+| SC-003 mailbox unchanged | `integration/test_mail_readonly.py` (scope, methods, endpoints) · `integration/test_mail_mbox.py::test_reading_leaves_the_file_byte_identical` · `integration/test_mail_isolation.py::test_the_archive_itself_is_never_written` |
+| SC-004 no body, no attachment | `integration/test_mail_isolation.py::test_the_sentinels_never_reach_the_store_or_the_log` · `integration/test_mail_shape.py::test_no_body_reaches_the_record` · `::test_a_provider_cannot_widen_what_is_read` |
+| SC-004a only sent mail | `integration/test_mail_sent_only.py` |
+| SC-005 no duration | `integration/test_mail_isolation.py::test_the_store_holds_no_duration_for_any_mail_record` · `integration/test_mail_shape.py::test_no_duration_is_ever_set` |
+| SC-006 re-running records nothing new | `integration/test_mail_resumption.py::test_a_second_run_with_nothing_changed_reads_nothing` · `integration/test_mail_mbox.py::test_re_reading_the_same_archive_yields_the_same_identifiers` |
+| SC-007 cost proportional to what changed | `integration/test_mail_gmail.py::test_a_second_run_asks_history_rather_than_listing_everything` · `integration/test_mail_resumption.py::test_a_stored_link_is_used_exactly_as_given` |
+| SC-008 re-derive contacts nothing | `integration/test_mail_rederive.py::test_a_mapping_change_moves_mail_without_reading_it` |
+| SC-009 corrections survive | `integration/test_mail_rederive.py::test_a_correction_survives_a_mapping_change` |
+| SC-010 inferred vs confirmed, every view | `integration/test_mail_attribution.py::test_an_ad_hoc_mail_project_is_marked_in_records_query` |
+| SC-010a exactly one project, winner recorded | `integration/test_mail_attribution.py::test_the_evidence_records_what_matched` and the precedence cases beside it |
+| SC-010b deterministic | `integration/test_mail_attribution.py::test_the_same_mailbox_read_twice_attributes_identically` |
+| SC-011 one account failing | `integration/test_mail_gmail.py::test_one_account_failing_does_not_stop_the_other` |
+| SC-012 four credential states | `integration/test_mail_auth.py` — one test per state, plus `::test_the_five_states_are_each_distinct` |
+| SC-013 preview matches applying it | `integration/test_mail_rederive.py::test_a_dry_run_predicts_exactly_what_applying_it_does` |
+| SC-014 identical shape, every provider | `integration/test_mail_shape.py::test_the_shape_is_identical_whatever_produced_it` (parametrised over all four) |
+| SC-015 everything offline | `integration/test_mail_isolation.py::test_everything_already_ingested_answers_with_no_network` |
+| SC-016 configure and diagnose offline | `integration/test_mail_config.py::test_validation_does_not_read_the_archive` · `integration/test_mail_auth.py::test_sources_check_names_the_state_for_an_unauthorised_account` |
+
+Three properties have no success criterion of their own and are asserted anyway, because
+each is a fault this project has shipped before:
+
+| Property | Test |
+|---|---|
+| One module may reach the network; one may spawn a process | `integration/test_mail_boundaries.py` |
+| `projects/` cannot contact a mail account | `integration/test_mail_boundaries.py::test_projects_cannot_reach_a_mail_account` |
+| Readers stream rather than accumulate | `integration/test_mail_performance.py` |
+
 ## Known limits at the end of this feature
 
 These are properties of the sources, not of the implementation, and the tool states them:
 
 1. **Received mail is not read.** By decision, not omission — `mail list` says so on every listing.
-2. **Hey needs its official CLI installed and signed in.** There is no IMAP, POP or third-party API; the
-   `hey` binary is the route ([research R1](./research.md)). Without it that account reports `tool missing`
-   and the others still ingest.
+2. **Hey mail is only as current as your last export.** There is no IMAP, POP or third-party API, and the
+   official CLI supplies neither recipients nor a `Message-ID` ([research R1](./research.md)). Where you
+   run several accounts inside one Hey, exporting each and pointing a source at every file is what lets the
+   same message, seen from two accounts, collapse into one record.
 3. **Gmail needs re-authorising about weekly**, unless the OAuth app goes through Google verification and a
    CASA assessment ([research R4](./research.md)).
 4. **A company tenant may refuse entirely**, and whether it does is not knowable in advance

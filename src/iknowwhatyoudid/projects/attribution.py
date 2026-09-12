@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .. import addresses
 from ..corrections import repository as corrections_repo
 from ..records import timestamps
 from ..store.connection import writing
@@ -23,8 +24,19 @@ from .model import Mapping, Repository
 
 
 class Rule(StrEnum):
+    # Repositories (0003)
     DECLARED = "mapping:declared"
     AD_HOC = "mapping:ad-hoc"
+    # Mail (0004). Precedence lives in `model.RULE_PRECEDENCE`, not here.
+    SUBJECT = "mapping:subject"
+    CORRESPONDENT = "mapping:correspondent"
+    CORRESPONDENT_DOMAIN = "mapping:correspondent-domain"
+    AD_HOC_DOMAIN = "mapping:ad-hoc-domain"
+
+
+#: Which rules mean "the tool guessed" rather than "the user said". Every view marks
+#: these, so an assumption never reads as a decision (FR-041, SC-009).
+AD_HOC_RULES = frozenset({Rule.AD_HOC, Rule.AD_HOC_DOMAIN})
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +79,61 @@ def project_for_repository(
     if declared is not None:
         return declared, Rule.DECLARED
     return repository.name, Rule.AD_HOC
+
+
+def ad_hoc_domain(recipients: Sequence[str], own_domains: Sequence[str]) -> str | None:
+    """The project name for a message no rule matched (FR-039).
+
+    "Named after its recipients' domain" has no single answer when a message went to two
+    organisations, so the rule is stated as an algorithm and asserted for determinism
+    (SC-010b): the result depends only on the message, never on the order mail was read.
+
+    1. take every recipient;
+    2. discard any whose domain is one of the account's own;
+    3. of those remaining, take the most frequent domain, breaking a tie alphabetically;
+    4. if none remain — a message sent only to colleagues — use the account's own domain.
+    """
+    mine = {d.casefold() for d in own_domains if d}
+    domains = [addresses.domain_of(a) for a in recipients if a]
+    external = [d for d in domains if d and d.casefold() not in mine]
+
+    if external:
+        counts: dict[str, int] = {}
+        for domain in external:
+            counts[domain] = counts.get(domain, 0) + 1
+        # Most frequent first; alphabetical breaks a tie, so the answer is stable.
+        return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))[0][0]
+
+    if domains:
+        return domains[0]
+    return sorted(mine)[0] if mine else None
+
+
+def project_for_message(
+    mapping: Mapping,
+    *,
+    subject: str,
+    recipients: Sequence[str],
+    sender: str,
+    own_domains: Sequence[str],
+) -> tuple[str, Rule, str] | None:
+    """Which project a message belongs to, which rule decided, and on what evidence.
+
+    Exactly one project, as `0003` gives each commit exactly one. A genuinely shared
+    message is filed under the winner and corrected by hand where that matters; the
+    alternative — one message on several projects — would make every "how much time on
+    Acme?" answer ambiguous about double-counting, and that ambiguity would reach a
+    billing record.
+    """
+    candidates = [*recipients, sender]
+    match = mapping.match_message(subject=subject, addresses=candidates)
+    if match is not None:
+        return match.project_name, Rule(match.rule.value), match.evidence
+
+    fallback = ad_hoc_domain(recipients, own_domains)
+    if fallback is None:
+        return None
+    return fallback, Rule.AD_HOC_DOMAIN, fallback
 
 
 def _record_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -115,24 +182,21 @@ def attribute(
     moved: list[Move] = []
     unchanged = 0
     held = 0
-    to_write: list[tuple[int, int, Rule, str]] = []
+    to_write: list[tuple[int, int, Rule, dict[str, str]]] = []
 
     for row in _record_rows(connection):
-        identity = _repository_of(row)
-        if identity is None:
+        decision = _decide(row, mapping, repositories)
+        if decision is None:
             continue
-        repository = repositories.get(identity)
-        if repository is None:
-            continue
+        name, rule, evidence = decision
 
         record_id = int(row["id"])
         if corrections_repo.get(connection, str(row["source"]), str(row["source_id"])):
             held += 1
             continue
 
-        name, rule = project_for_repository(mapping, repository)
         project = projects_repo.ensure_project(
-            connection, name, ad_hoc=rule is Rule.AD_HOC, now=at
+            connection, name, ad_hoc=rule in AD_HOC_RULES, now=at
         )
         previous = existing.get(record_id)
         if previous is not None and previous[0] == project.id:
@@ -141,11 +205,11 @@ def attribute(
             moved.append(
                 Move(record_id, str(row["source_id"]), previous[1], project.name)
             )
-        to_write.append((record_id, project.id, rule, identity))
+        to_write.append((record_id, project.id, rule, evidence))
 
     with writing(connection):
         connection.execute("DELETE FROM derived_attribution")
-        for record_id, project_id, rule, identity in to_write:
+        for record_id, project_id, rule, evidence in to_write:
             connection.execute(
                 "INSERT INTO derived_attribution (record_id, project_id, rule, evidence, "
                 "derived_at_utc) VALUES (?, ?, ?, ?, ?)",
@@ -153,7 +217,7 @@ def attribute(
                     record_id,
                     project_id,
                     rule.value,
-                    json.dumps({"repository": identity, "rule": rule.value}),
+                    json.dumps({**evidence, "rule": rule.value}),
                     at,
                 ),
             )
@@ -166,6 +230,59 @@ def attribute(
         pruned_ad_hoc=pruned,
         total=len(to_write),
     )
+
+
+def _decide(
+    row: sqlite3.Row,
+    mapping: Mapping,
+    repositories: dict[str, Repository],
+) -> tuple[str, Rule, dict[str, str]] | None:
+    """Which project this record belongs to, whatever kind of record it is.
+
+    One function so that `attribute` and `preview` cannot drift apart — SC-013 requires
+    the preview's predicted moves to match applying it exactly, and the cheapest way to
+    guarantee that is to have one decision rather than two that look alike.
+    """
+    payload = _payload_of(row)
+    kind = payload.get("kind")
+
+    if kind == "mail_sent":
+        raw_recipients = payload.get("recipients", [])
+        recipients = [
+            str(entry[0])
+            for entry in (raw_recipients if isinstance(raw_recipients, list) else [])
+            if isinstance(entry, list | tuple) and entry
+        ]
+        sender = str(payload.get("sent_by", ""))
+        own_domains = [addresses.domain_of(sender)] if sender else []
+        decided = project_for_message(
+            mapping,
+            subject=str(payload.get("subject", "")),
+            recipients=recipients,
+            sender=sender,
+            own_domains=own_domains,
+        )
+        if decided is None:
+            return None
+        name, rule, evidence = decided
+        return name, rule, {"matched": evidence, "account": str(payload.get("account", ""))}
+
+    identity = _repository_of(row)
+    if identity is None:
+        return None
+    repository = repositories.get(identity)
+    if repository is None:
+        return None
+    name, rule = project_for_repository(mapping, repository)
+    return name, rule, {"repository": identity}
+
+
+def _payload_of(row: sqlite3.Row) -> dict[str, object]:
+    try:
+        loaded = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _prune_and_name(connection: sqlite3.Connection) -> tuple[str, ...]:
@@ -202,11 +319,10 @@ def preview(connection: sqlite3.Connection, mapping: Mapping) -> RederiveReport:
     would_hold: set[str] = set()
 
     for row in _record_rows(connection):
-        identity = _repository_of(row)
-        if identity is None:
-            continue
-        repository = repositories.get(identity)
-        if repository is None:
+        # The same `_decide` the real thing uses. Two functions that looked alike would
+        # drift, and SC-013 requires the preview to match applying it exactly.
+        decision = _decide(row, mapping, repositories)
+        if decision is None:
             continue
         record_id = int(row["id"])
         if corrections_repo.get(connection, str(row["source"]), str(row["source_id"])):
@@ -214,7 +330,7 @@ def preview(connection: sqlite3.Connection, mapping: Mapping) -> RederiveReport:
             continue
 
         total += 1
-        name, _rule = project_for_repository(mapping, repository)
+        name, _rule, _evidence = decision
         would_hold.add(name)
         previous = current.get(record_id)
         if previous == name:

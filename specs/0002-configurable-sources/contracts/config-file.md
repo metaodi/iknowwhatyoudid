@@ -85,12 +85,21 @@ Kind names are stable — they appear in users' files and cannot be renamed with
 | Kind | Credential | Destinations | Reading | Settings |
 |------|-----------|--------------|---------|----------|
 | `git.local` | no | none | **available** (0003) | `paths` (PATH_LIST, required), `identities` (IDENTITY_LIST, required), `exclude` (PATH_LIST) |
-| `mail.outlook` | yes | Microsoft Graph | *later (0004)* | `addresses` (required), `folders.include`, `folders.exclude` |
-| `mail.gmail` | yes | Google Gmail API | *later (0004)* | `addresses` (required), `labels.include`, `labels.exclude` |
-| `mail.hey` | yes | Hey IMAP | *later (0004)* | `addresses` (required), `folders.include`, `folders.exclude` |
+| `mail.outlook` | yes | `graph.microsoft.com`, `login.microsoftonline.com` | **available** (0004) | `addresses` (required), `client_id`, `tenant`, `folders.include`, `folders.exclude` |
+| `mail.gmail` | yes | `gmail.googleapis.com`, `oauth2.googleapis.com` | **available** (0004) | `addresses` (required), `client_id`, `tenant`, `labels.include`, `labels.exclude` |
+| `mail.hey` | no | none | **available** (0004) — reads an export | `addresses` (required), `paths` (required) |
+| `mail.mbox` | no | none | **available** (0004) | `addresses` (required), `paths` (required) |
 | `calendar.outlook` | yes | Microsoft Graph | *later (0005)* | `calendars` (required) |
 | `calendar.google` | yes | Google Calendar API | *later (0005)* | `calendars` (required) |
 | `fixture` | no | none | **available** | `recorded` (PATH_LIST, required) |
+
+`mail.hey` was declared by `0002` as "Hey IMAP". That was wrong — Hey offers no IMAP, no POP and no
+third-party API — and `0004` corrected it to an archive import rather than removing the name, so a
+configuration written on the strength of the old declaration still resolves.
+
+`client_id` is deliberately a **setting, not a credential**. It is public — it appears in every sign-in
+URL — and `credentials.toml` registers everything it holds with the redaction filter, which would mask the
+client_id out of the very URL `sources authorise --no-browser` asks the user to open.
 
 Kinds marked *later* validate fully today and report readiness `NOT_READABLE` (see
 [data-model.md](../data-model.md)). They are declarations, not stubs pretending to work.

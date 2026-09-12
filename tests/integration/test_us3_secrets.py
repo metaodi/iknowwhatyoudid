@@ -51,7 +51,7 @@ def test_a_missing_credential_is_reported_by_name(tmp_path: Path) -> None:
     assert finding.remedy is not None and "credentials.toml" in finding.remedy
 
 
-def test_a_present_credential_makes_the_source_ready_or_not_readable(
+def test_a_present_credential_makes_the_source_ready(
     tmp_path: Path,
 ) -> None:
     config = _config_with_credential(tmp_path)
@@ -63,9 +63,10 @@ def test_a_present_credential_makes_the_source_ready_or_not_readable(
     status = session.report.status_for("work-mail")
 
     assert status is not None
-    # mail.outlook has no reader yet, so the honest verdict is NOT_READABLE — but it is
-    # no longer blocked on the credential.
-    assert status.readiness is f.Readiness.NOT_READABLE
+    # `0004` gave `mail.outlook` a reader, so the verdict is now READY rather than
+    # NOT_READABLE. What this test is really about is unchanged: a present credential
+    # must not leave the source blocked on it.
+    assert status.readiness is f.Readiness.READY
 
 
 def test_the_store_reports_presence_and_never_returns_a_value(tmp_path: Path) -> None:
@@ -260,7 +261,10 @@ def test_a_disabled_source_does_not_block_on_its_credential(tmp_path: Path) -> N
     """
     config = tmp_path / "config.toml"
     config.write_text(
-        '[[source]]\nname = "parked"\nkind = "mail.hey"\nenabled = false\n'
+        # `mail.gmail` rather than `mail.hey`: this test is about a *credential* not
+        # blocking a disabled source, and `0004` made `mail.hey` an export kind with no
+        # credential at all — which would have made the test pass for the wrong reason.
+        '[[source]]\nname = "parked"\nkind = "mail.gmail"\nenabled = false\n'
         'credential = "not-supplied"\naddresses = ["me@example.com"]\n',
         encoding="utf-8",
     )

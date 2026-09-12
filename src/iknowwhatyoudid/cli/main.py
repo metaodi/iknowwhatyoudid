@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from ..errors import EXIT_USAGE, IkwydError
 from ..store.location import resolve_store_path
 from ..sources.state import SqliteSourceStateStore
-from . import commands, projects_commands, sources_commands
+from . import commands, mail_commands, projects_commands, sources_commands
 
 
 def _global_options(*, suppress: bool) -> argparse.ArgumentParser:
@@ -148,6 +148,35 @@ def build_parser() -> argparse.ArgumentParser:
     rederive.add_argument("--projects", help="use this project mapping file")
     rederive.add_argument("--dry-run", action="store_true")
 
+    authorise = source_actions.add_parser(
+        "authorise",
+        help="sign in to a mail account, once",
+        parents=[common],
+    )
+    authorise.add_argument("name")
+    authorise.add_argument("--config", help="use this configuration file")
+    authorise.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="print the sign-in URL instead of opening a browser, for use over SSH",
+    )
+
+    mail = subparsers.add_parser("mail", help="mail activity")
+    mail_actions = mail.add_subparsers(dest="action", required=True)
+    listing = mail_actions.add_parser(
+        "list", help="mail you sent, by date, account or project", parents=[common]
+    )
+    listing.add_argument("--from", dest="since", help="YYYY-MM-DD")
+    listing.add_argument("--to", dest="until", help="YYYY-MM-DD")
+    listing.add_argument("--account", help="only this account")
+    listing.add_argument("--project", help="only this project")
+    who = mail_actions.add_parser(
+        "correspondents",
+        help="who contributes most to a project, and who is not mapped yet",
+        parents=[common],
+    )
+    who.add_argument("--project", help="only this project")
+
     corrections = subparsers.add_parser("corrections", help="user corrections")
     correction_actions = corrections.add_subparsers(dest="action", required=True)
     export = correction_actions.add_parser(
@@ -198,6 +227,10 @@ def _dispatch_sources(args: argparse.Namespace) -> commands.Result:
             )
         case ("sources", "destinations"):
             return sources_commands.sources_destinations(session)
+        case ("sources", "authorise"):
+            return mail_commands.authorise(
+                session, name=args.name, open_browser=not args.no_browser
+            )
         case ("ingest", _):
             return sources_commands.ingest(
                 session,
@@ -251,6 +284,16 @@ def _dispatch(args: argparse.Namespace) -> commands.Result:
     session = commands.open_store(args.store, verbose=args.verbose)
 
     match (args.group, args.action):
+        case ("mail", "list"):
+            return mail_commands.mail_list(
+                session,
+                since=args.since,
+                until=args.until,
+                account=args.account,
+                project=args.project,
+            )
+        case ("mail", "correspondents"):
+            return mail_commands.mail_correspondents(session, project=args.project)
         case ("store", "info"):
             return commands.store_info(session)
         case ("store", "check"):

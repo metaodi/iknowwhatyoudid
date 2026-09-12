@@ -12,6 +12,7 @@ from ..config.location import resolve_config_path, resolve_projects_path
 from ..errors import UsageError
 from ..git import reader as git_reader
 from ..projects import attribution, mapping
+from ..mail import correspondents as correspondents_repo
 from ..projects import repository as projects_repo
 from ..projects.model import Mapping
 from .commands import Result
@@ -141,16 +142,23 @@ def repos_check(config: str | None, projects: str | None, store_path: Path) -> R
 
 def projects_list(connection: sqlite3.Connection, store_path: Path) -> Result:
     summaries = projects_repo.list_projects(connection)
+    # A project fed by mail should be as visible as one fed by commits: without this a
+    # project with forty correspondents and no repositories reads as empty.
+    people = correspondents_repo.counts_by_project(connection)
     rows = [
         [
             s.project.name,
             "ad hoc" if s.project.ad_hoc else "declared",
             str(s.repositories),
+            str(people.get(s.project.id, 0)),
             f"{s.activity:,}",
         ]
         for s in summaries
     ]
-    body = table(["PROJECT", "SOURCE", "REPOSITORIES", "ACTIVITY"], rows) or "No projects."
+    body = (
+        table(["PROJECT", "SOURCE", "REPOSITORIES", "CORRESPONDENTS", "ACTIVITY"], rows)
+        or "No projects."
+    )
     declared = sum(1 for s in summaries if not s.project.ad_hoc)
     tail = (
         f"{len(summaries)} projects · {declared} declared · "
@@ -166,6 +174,7 @@ def projects_list(connection: sqlite3.Connection, store_path: Path) -> Result:
                     "name": s.project.name,
                     "ad_hoc": s.project.ad_hoc,
                     "repositories": s.repositories,
+                    "correspondents": people.get(s.project.id, 0),
                     "activity": s.activity,
                 }
                 for s in summaries

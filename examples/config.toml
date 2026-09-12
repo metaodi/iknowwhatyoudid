@@ -20,34 +20,56 @@ since      = 2026-01-01T00:00:00+01:00
 paths      = ["REPLACE/with/a/folder/holding/repositories"]
 identities = ["REPLACE@example.com"]
 
-# --- mail --------------------------------------------------------------------------
-# `credential` is a NAME. Put the secret in credentials.toml, never here.
-[[source]]
-name            = "REPLACE-work-mail"
-kind            = "mail.outlook"          # or mail.gmail, mail.hey
-credential      = "REPLACE-credential-name"
-since           = 2026-01-01T00:00:00+01:00
-addresses       = ["REPLACE@example.com"]
-folders.include = ["Inbox", "Sent Items"]
-folders.exclude = ["Junk Email"]
+# --- mail ----------------------------------------------------------------------------
+#
+# Only mail you SENT is recorded. Mail you received is not read at all — every listing
+# says so, because a quiet Tuesday must be distinguishable from one this tool does not
+# look at.
+#
+# `credential` is a NAME; the secret never goes in this file. `client_id` is NOT a secret
+# — it appears in every sign-in URL — so it lives here rather than beside the secrets.
+# The one secret stored is a refresh token, which `ikwyd sources authorise` writes to
+# tokens.toml, readable by you alone.
+#
+# Uncomment one of these once you have registered an application with the provider.
 
-# A source you are not ready to read yet. Switching it off keeps whatever it has
-# already contributed to the store; it simply stops being read.
-[[source]]
-name       = "REPLACE-personal-mail"
-kind       = "mail.hey"
-enabled    = false
-credential = "REPLACE-credential-name"
-addresses  = ["REPLACE@example.com"]
+# [[source]]
+# name       = "REPLACE-work-mail"
+# kind       = "mail.outlook"
+# credential = "REPLACE-credential-name"
+# client_id  = "REPLACE-application-id"
+# tenant     = "REPLACE-tenant-id"          # optional; "organizations" by default
+# since      = 2026-01-01T00:00:00+01:00
+# addresses  = ["REPLACE@example.com"]
 
-# --- calendar ----------------------------------------------------------------------
-[[source]]
-name       = "REPLACE-work-calendar"
-kind       = "calendar.google"            # or calendar.outlook
-credential = "REPLACE-credential-name"
-calendars  = ["primary"]
+# [[source]]
+# name       = "REPLACE-personal-mail"
+# kind       = "mail.gmail"
+# credential = "REPLACE-credential-name"
+# client_id  = "REPLACE-application-id"
+# addresses  = ["REPLACE@example.com"]
+
+# Hey offers no IMAP, no POP and no third-party API, and its CLI supplies neither
+# recipients nor a Message-ID — so Hey mail comes from an export, as any archive does.
+# No credential, no sign-in: just a path.
+
+# [[source]]
+# name      = "REPLACE-hey-mail"
+# kind      = "mail.hey"                    # `mail.mbox` behaves identically
+# addresses = ["REPLACE@example.com"]
+# paths     = ["REPLACE/path/to/export.mbox"]
+
+# --- calendar ------------------------------------------------------------------------
+# Still a declaration: it validates, and reports `not readable` rather than pretending.
+
+# [[source]]
+# name       = "REPLACE-work-calendar"
+# kind       = "calendar.google"            # or calendar.outlook
+# credential = "REPLACE-credential-name"
+# calendars  = ["primary"]
 
 # Run `ikwyd sources kinds` to see every kind and the settings it accepts.
 #
-# Mapping people or repositories to projects does NOT go here. That is attribution,
-# and it belongs to a later feature — a [projects] table is rejected, not ignored.
+# Mapping people or repositories to projects does NOT go here. That is attribution, and
+# it lives in projects.toml beside this file — a [projects] table here is rejected rather
+# than ignored.

@@ -27,9 +27,36 @@ corrections, the configuration file, validation, the source-kind registry, crede
 handling, and the CLI around all of it.
 
 **Git works.** `git.local` reads commits, branches and merges from your local
-repositories — never over a network, and verified never to modify one. `mail.*` and
-`calendar.*` are still *declarations*: you can configure them and they validate, but they
-report `not readable` rather than pretending to work. Those are features `0004`–`0005`.
+repositories — never over a network, and verified never to modify one. `calendar.*` is
+still a *declaration*: you can configure it and it validates, but it reports
+`not readable` rather than pretending to work. That is feature `0005`.
+
+**Mail works, and only mail you sent.** Microsoft 365 and Gmail are read live;
+Hey and any other archive are read from an exported `.mbox`, opened read-only and never
+written. Received mail is not read at all — every listing says so, because a quiet
+Tuesday must be distinguishable from one this tool does not look at.
+
+The guarantee that no message body reaches the store is **structural, not careful**.
+Microsoft's `Mail.ReadBasic` and Gmail's `gmail.metadata` return messages *without* a body
+or attachments, so there is nothing to discard. Gmail's IMAP is deliberately not used: its
+only scope also grants send and delete, and a credential that could destroy what we
+promised only to observe is not made acceptable by careful client code.
+
+**Hey needs an export.** It offers no IMAP, no POP and no third-party API. It does ship an
+official CLI, and this tool does not use it: `hey search` returns no recipients and no
+`Message-ID`, which are exactly what attribution and de-duplication need. Export from Hey,
+point `paths` at the file, and re-export when you want it current — Hey mail is only as
+fresh as your last export. If you run several accounts inside one Hey, export each: the
+same message seen from two accounts then collapses into one record.
+
+**One external tool.** `git` is a program you install yourself, invoked through an
+allow-list of read-only subcommands so it cannot be asked to change anything even by a
+future mistake. It is optional: if it is missing, that source reports it by name and every
+other source still ingests.
+
+Hey ships an official CLI, and it is worth having, but **this tool does not invoke it**.
+Its output models a conversation rather than an envelope — a message has a sender and a
+body, and no `To` or `Cc` — so it cannot supply what a record needs. An export can.
 
 ## Configure your sources
 
@@ -42,7 +69,10 @@ ikwyd ingest                 # read from every ready source
 ```
 
 The configuration file holds **no secrets** — credentials are referenced by name, with
-values in `credentials.toml` beside it. Which repositories belong to which project goes
+values in `credentials.toml` beside it. Mail accounts additionally need a `client_id`,
+which is *not* a secret and lives in the configuration: it appears in every sign-in URL.
+The one secret this tool stores is a refresh token, written to `tokens.toml` by
+`ikwyd sources authorise`, created readable by you alone and checked on every read. Which repositories belong to which project goes
 in `projects.toml`, also beside it. The tool never writes any of the three.
 
 Everything is recorded against a **project**. Where you have not said which project a
@@ -54,6 +84,10 @@ single repository.
 ## Commands
 
 ```bash
+ikwyd sources authorise NAME  # sign in to a mail account, once (the only interactive command)
+ikwyd mail list               # mail you sent, with the project it landed on
+ikwyd mail correspondents     # who contributes most, and who is not mapped yet
+
 ikwyd repos list              # every repository your configuration matches
 ikwyd repos check             # discovery diagnostics without ingesting
 ikwyd projects list           # every project and how much activity it holds
@@ -106,6 +140,12 @@ recovery step and left exactly as it is.
 are keyed by the source's own identifiers rather than internal row ids, which is what lets
 them survive deleting the store and re-ingesting from scratch. Import merges newest-wins
 by when the correction was made, and names every replacement — nothing changes silently.
+
+**What mail cannot tell you.** A message is a point in time, so no duration is ever
+stored — turning correspondence into hours is a later feature's job. Message bodies and
+attachments are never stored at all, and neither is `Bcc`. Gmail hands back the sender's
+original time zone; Microsoft Graph normalises to UTC, so for a work account the offset is
+Microsoft's rather than yours.
 
 **Two things git cannot tell you, which the tool does not pretend to know.** It records
 *when* you committed and never *how long the work took*, so no duration or effort

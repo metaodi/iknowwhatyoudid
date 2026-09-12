@@ -17,12 +17,23 @@ credential      = "outlook-work"
 addresses       = ["stefan@example.com"]
 folders.include = ["Inbox", "Sent Items"]
 
+# A disabled source that names a credential, so `0002`'s rule stays covered: switched off
+# beats missing credential, because nagging about one that will not be used is noise.
 [[source]]
 name       = "personal-mail"
-kind       = "mail.hey"
+kind       = "mail.gmail"
 enabled    = false
-credential = "hey-personal"
-addresses  = ["stefan@hey.com"]
+credential = "gmail-personal"
+addresses  = ["stefan@example.com"]
+
+# `0004` changed `mail.hey`: Hey offers no IMAP, no POP and no API, and its CLI supplies
+# neither recipients nor a Message-ID, so mail arrives from an export. No credential.
+[[source]]
+name      = "hey-archive"
+kind      = "mail.hey"
+enabled   = false
+addresses = ["stefan@hey.com"]
+paths     = ["tests/fixtures/mail/does-not-exist.mbox"]
 
 [[source]]
 name     = "recorded-day"

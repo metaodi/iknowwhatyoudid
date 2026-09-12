@@ -27,18 +27,16 @@ Sent folder, so received mail is never fetched rather than fetched and discarded
 
 Two Phase 0 findings change what can be built, and both are the user's decision to accept:
 
-1. **Hey is read through its official CLI**, not a protocol. It offers no IMAP, no POP and no third-party
-   API, but 37signals ship `basecamp/hey-cli` — a binary that can also send and reply. It is therefore
-   treated exactly as `0003` treats git: invoked through an **allow-list of read-only subcommands**, so the
-   mutating half is unreachable rather than merely unused. One consequence is a genuine improvement over
-   the other two providers — the CLI holds its own credential in the system keyring, so this tool never
-   handles a Hey token at all.
+1. **Hey is read from an exported archive** — verified against a real account, after two earlier
+   conclusions were wrong. Hey offers no IMAP, no POP and no third-party API; 37signals do ship an official
+   CLI, but its search results carry **no recipients and no `Message-ID`**, timestamps in UTC only, and a
+   body preview on every row. None of that can produce the message shape, so `mail.mbox` — already built as
+   this feature's foundation — is how Hey mail arrives. See [research.md](./research.md) R1 for the data.
 2. **Gmail tokens expire weekly** unless the OAuth app goes through Google verification and a CASA
    assessment, which is disproportionate for a single-user local tool. Re-authorisation is therefore
    designed in as an expected event rather than treated as a failure.
 
-Both are recorded in [research.md](./research.md) with sources. One assumption behind (1) is **not yet
-verified** and should be before tasks are written — see *Open decisions* below.
+Both are recorded in [research.md](./research.md) with sources.
 
 ## Technical Context
 
@@ -48,8 +46,8 @@ verified** and should be before tasks are written — see *Open decisions* below
 `secrets`, `hashlib`, `base64`, `ssl`, `json`, `mailbox`, `subprocess` — all standard library, verified
 present. The existing `tzdata` marker dependency is unchanged.
 
-**External tools**: `hey` (from `basecamp/hey-cli`) for the Hey account only — a user-installed binary, as
-`git` already is. Detected, version-checked, and absent-tolerated with a clear message; never assumed.
+**External tools**: none. The `hey` CLI was investigated and rejected (research R1); if a later feature
+revisits it, it must be invoked through an allow-list module in the manner of `git/binary.py`.
 
 **Storage**: the SQLite store from `0001`, at schema v2; this feature adds migration `m0003`
 
@@ -75,7 +73,7 @@ a year per account
 | Principle | How this feature satisfies it | Gate |
 |---|---|---|
 | **I. Local-First and Private by Default** (NON-NEGOTIABLE) | The only network traffic is to the two configured providers, and solely to read. No analytics, no crash reporting, no hosted model. Everything ingested stays in the local store and stays queryable offline (FR-051, SC-015), which a test asserts by forbidding sockets. | **PASS** |
-| **II. Read-Only at the Source** (NON-NEGOTIABLE) | No connector may write, and here it additionally *cannot*: the requested authorisations grant reading only, and return no body. Gmail's IMAP route is rejected precisely because its only scope also grants send and delete (research R2). The MBOX kind opens a local file for reading and never writes it. The Hey CLI *can* send, so it is confined to an allow-list of read-only subcommands in one module, as `git/binary.py` does — `compose` and `reply` are unreachable, not merely unused. All scopes and subcommands are named in full below. | **PASS** |
+| **II. Read-Only at the Source** (NON-NEGOTIABLE) | No connector may write, and here it additionally *cannot*: the requested authorisations grant reading only, and return no body. Gmail's IMAP route is rejected precisely because its only scope also grants send and delete (research R2). The MBOX kind opens a local file for reading and never writes it — asserted by hashing the file before and after. All scopes are named in full below. | **PASS** |
 | **III. Spec-Driven Development** (NON-NEGOTIABLE) | `spec.md` is complete with 55 requirements and no open markers; this plan follows it. User Story 4 stands as written — the CLI makes it deliverable — but one assumption behind it is unverified and is flagged rather than assumed away. | **PASS** |
 | **IV. Rebuildable Local Store** | Mail is stored in normalised raw form, separate from derived attributions (FR-026, FR-027). Deleting the store and re-ingesting reproduces equivalent state; the documented exceptions are mail the provider no longer exposes and, for Gmail, history older than the provider's retention of `historyId`. Migration `m0003` is versioned and tested against both an empty and a populated store. | **PASS** |
 | **V. Transparent, Correctable Attribution** | Every attribution records the rule and the evidence — which address or which subject text matched (FR-035), and which rule won where several did (FR-037). Ad-hoc attributions are marked in every view (FR-041), as `0003` already does. A correction overrides any rule and survives re-derivation (FR-042, FR-043). | **PASS** |
@@ -112,7 +110,6 @@ a year per account
 |---|---|---|---|---|
 | Microsoft 365 | `/me/mailFolders/sentitems/messages/delta` | `Mail.ReadBasic`, `offline_access` | `internetMessageId`, `sentDateTime`, `from`, `toRecipients`, `ccRecipients`, `subject`, `hasAttachments` | **No** — the scope excludes it |
 | Gmail | `users.messages.list` (`labelIds=SENT`), `users.messages.get` (`format=metadata`), `users.history.list` | `gmail.metadata` | `Message-ID`, `Date`, `From`, `To`, `Cc`, `Subject` headers | **No** — the scope excludes it |
-| Hey | `hey search --from <you> --date <range> --json` | none held by us — the CLI owns its own credential | `Message-ID`, `Date`, `From`, `To`, `Cc`, `Subject` from the search result | **Not requested.** See the unverified assumption in research R1 |
 | Exported archive | a local `.mbox` file | none | the same headers, via `email` | Present in the file; **never read** — only the header block is parsed |
 
 **Retention**: raw records are kept until the user deletes the store. No provider response is cached on
@@ -148,8 +145,6 @@ src/iknowwhatyoudid/
 │   ├── mbox.py                  # reading an exported archive
 │   ├── graph.py                 # Microsoft 365 reading
 │   ├── gmail.py                 # Gmail reading
-│   ├── hey_cli.py               # the ONLY place `hey` is invoked; read-only allow-list
-│   ├── hey.py                   # Hey reading, on top of hey_cli
 │   └── reader.py                # MailReader — one SourceReader over all three
 ├── auth/                        # NEW — OAuth, used only by mail/
 │   ├── pkce.py                  # code verifier/challenge, loopback redirect
@@ -184,15 +179,16 @@ tests/
 ```
 
 **Structure Decision**: three new packages, each with one job and a boundary worth enforcing. `net/http.py`
-is the **only** module permitted to make an HTTP request, and `mail/hey_cli.py` the **only** module
-permitted to spawn a process — so "no destination other than a configured account" and "no subcommand that
-could send mail" are each checkable by one import test, the technique that made `projects/` provably unable
-to read a repository in `0003`. `auth/` is separated from `mail/` because tokens are the one thing here that
-must never appear in a log. Provider modules sit under `mail/` because a provider is a reading detail;
-nothing above `mail/reader.py` knows which of the four produced a record.
+is the **only** module permitted to make an HTTP request, so "no destination other than a configured
+account" is checkable by one import test — the technique that made `projects/` provably unable to read a
+repository in `0003`. `auth/` is separated from `mail/` because tokens are the one thing here that must
+never appear in a log. Provider modules sit under `mail/` because a provider is a reading detail; nothing
+above `mail/reader.py` knows which one produced a record.
 
-This feature spans **all three ways a source can be reached** — an HTTP API we call, a file we read, and a
-binary we invoke — which is the real test of whether `0002`'s connector interface was the right shape.
+Address normalisation lives at `src/iknowwhatyoudid/addresses.py`, **above** both `mail/` and `projects/`.
+It is pure string work that both need, and putting it in `mail/` would have forced an exception to
+"`projects/` may not import `mail/`" — turning a boundary a test can check into a judgement every future
+author has to re-make.
 
 ## Phase 1 design decisions
 
@@ -215,8 +211,8 @@ unreachable behind a broad one.
 
 **The `mail.hey` kind is corrected, not removed.** `0002` shipped it declaring destination "Hey IMAP" and
 required access "Read your mail over IMAP". Hey has no IMAP; the declaration was wrong. The name stays —
-someone may already have written it — and is re-declared against the CLI, with destination "the `hey` CLI"
-and required access naming the read-only subcommands.
+someone may already have written it — and is re-declared as an archive import, so a user who wrote it gets
+an explanation rather than "unknown kind".
 
 ## Complexity Tracking
 
@@ -226,21 +222,16 @@ reviewer can disagree with them:
 | Decision | Cheaper alternative | Why the cheaper one was rejected |
 |---|---|---|
 | Hand-rolled OAuth (PKCE, refresh, loopback) in `auth/` | `msal` + `google-auth` | Two dependencies, each pulling their own transitive tree, into a tool holding a person's mail metadata. The flow is ~200 lines of standard library and we must understand it regardless to satisfy FR-010's four distinguishable failure states. |
-| Reading Hey through its CLI rather than its HTTP API | Call `/advanced_search.json` directly | The API is undocumented for third parties and unversioned as a public contract, and calling it means implementing Hey's authentication ourselves — taking custody of a credential the official CLI already holds properly in the system keyring. |
+| Reading Hey from an export rather than from its CLI | `hey search --json` | Verified: search results carry no recipients and no `Message-ID`, so correspondent attribution and cross-provider identity both become impossible. Recovering recipients would mean `thread read`, which returns whole bodies (research R1). |
 | A separate `net/http.py` that everything must route through | `urllib` called from each provider module | The boundary is the point. "No network destination other than a configured account" becomes a property one test can assert about the whole codebase, rather than a claim about three modules that a fourth could quietly break. |
 
 ## Open decisions for the user
 
-1. **One Hey assumption needs verifying by hand**, and it decides how good that connector can be: does a
-   search result carry the recipients, date and subject, or only a thread identifier? If only an identifier,
-   recipients would have to come from `thread read`, which renders whole threads **including bodies** — and
-   Hey alone would drop from "cannot receive a body" to "must be careful not to store one". Three commands
-   settle it; they are in [research.md](./research.md) R1. No test may run them (constitution).
+1. **Hey is settled** (research R1, verified 2026-09-10): an exported archive, through `mail.mbox`. One
+   loose end remains — the verification ran `--from` with a placeholder address and still returned the
+   user's own threads, so whether that flag means "sent by me" is unknown. It does not change the decision,
+   because recipients and `Message-ID` are absent either way.
 2. **Microsoft 365 may be blocked by your employer's tenant policy.** Not knowable from here. If blocked,
    US1 is undeliverable against that account and the priorities should change — the fallback is an Outlook
    export through the same `mail.mbox` kind.
 3. **Gmail will need re-authorising about weekly.** Accept that, or prefer the MBOX route for Gmail too?
-
-None of these blocks `/speckit-tasks`. (1) changes the shape of the Hey tasks but not whether they exist,
-and the `mail.mbox` kind is worth building either way — it is the fixture format for the whole feature and
-the fallback for every provider.

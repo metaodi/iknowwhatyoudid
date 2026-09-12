@@ -160,6 +160,11 @@ tool's guess never reads as the user's decision. The machine form carries `proje
 A record with no attribution shows `—` and is counted in the summary line: it is a fault to be seen, not a
 blank cell.
 
+**`0004` adds mail records to this view.** A mail record's `TITLE` is its subject line, and `SOURCE` is the
+configured account name. `ikwyd mail list` is the narrower view, with recipients and the standing reminder
+that received mail is not read; `records query` remains the one place every kind of activity appears
+together in time order.
+
 ---
 
 ## `ikwyd derived discard`

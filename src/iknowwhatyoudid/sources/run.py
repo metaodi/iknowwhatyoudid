@@ -187,6 +187,7 @@ def _ingest_one(
 
     if connection is not None:
         _record_repositories(connection, records)
+        _record_correspondents(connection, records)
 
     through = max((r.occurred for r in records), default=None)
     outcome = Outcome(
@@ -259,6 +260,28 @@ def ingest(
         outcomes.append(_ingest_one(status, store, connection, mode))
 
     return RunReport(tuple(outcomes))
+
+
+def _record_correspondents(
+    connection: sqlite3.Connection, records: Sequence[NormalizedRecord]
+) -> None:
+    """Register every address the records mention, with the role it appeared in.
+
+    Driven by the records for the same reason `_record_repositories` is: a record carries
+    what it was read under, so the index built from it cannot drift from what was stored,
+    and rebuilding the store from scratch reproduces both.
+    """
+    from ..mail import correspondents
+
+    for record in records:
+        if record.payload.get("kind") != "mail_sent":
+            continue
+        if record.source_id is None:
+            continue
+        record_id = correspondents.record_id_for(connection, record.source_id)
+        if record_id is None:
+            continue
+        correspondents.record_from_payload(connection, record_id, record.payload)
 
 
 def _record_repositories(

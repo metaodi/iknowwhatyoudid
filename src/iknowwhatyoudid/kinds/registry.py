@@ -20,6 +20,7 @@ _BUILT_IN: tuple[SourceKind, ...] = (
     mail.OUTLOOK,
     mail.GMAIL,
     mail.HEY,
+    mail.MBOX,
     calendar.OUTLOOK,
     calendar.GOOGLE,
 )

@@ -74,6 +74,8 @@ Inside `raw_record.payload`, for a mail record:
 | `sent_by` | Which of the user's declared addresses sent it (FR-021) |
 | `subject` | The subject line, verbatim |
 | `recipient_count` | How many addresses were on it, so a broadcast is visible without a join |
+| `recipients` | `[address, role]` pairs. Also in `raw_correspondent`, and kept here deliberately: `sources/run.py` is source-agnostic and sees only records, so a record must carry what the index is built from. Same argument `_record_repositories` makes for git — driving the index from the record means it cannot disagree with what was stored, and Principle IV's "delete and re-ingest" reproduces both |
+| `display_names` | Address → the name seen on the header. Shown to a person, **never** matched on |
 | `has_attachments` | Whether it had any. **Never** their names, sizes or content (FR-024). |
 | `withdrawable` | `false` for records from an MBOX (research R13); absent otherwise |
 

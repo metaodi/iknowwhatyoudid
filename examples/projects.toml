@@ -39,3 +39,22 @@ name = "REPLACE-admin"
 #
 # Re-deriving reads no repository. A correction you made by hand always wins over
 # whatever this file says.
+
+# Mail lands on a project by WHO it went to, or by WHAT the subject says.
+#
+#   correspondents — an address, or a bare domain (matched on domain labels, so
+#                    `acme.example` covers `mail.acme.example` but never
+#                    `notacme.example`)
+#   subjects       — plain text, matched case-insensitively anywhere in the subject.
+#                    NOT a glob and NOT a regular expression: `[ACME]` means those six
+#                    characters, which is what a bracketed tag needs to mean.
+#
+# Where several rules match, a subject rule wins over a correspondent rule, an address
+# rule wins over a domain rule, and the earlier-declared rule wins over a later one.
+# Mail matching nothing gets a project named after its recipients' domain, marked
+# `(ad hoc)` so a guess never reads as a decision.
+
+# [[project]]
+# name           = "REPLACE-with-a-project-name"
+# correspondents = ["REPLACE@example.com", "REPLACE-example.com"]
+# subjects       = ["REPLACE-subject-tag"]

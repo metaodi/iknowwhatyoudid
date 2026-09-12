@@ -19,6 +19,8 @@ htmlcov/
 *.db-shm
 *.db.pre-v*
 credentials.toml
+tokens.toml
+*.mbox
 
 # Editors / OS
 .DS_Store

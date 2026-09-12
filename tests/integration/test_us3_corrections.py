@@ -15,7 +15,7 @@ from iknowwhatyoudid.derived import repository as derived_repo
 from iknowwhatyoudid.errors import IkwydError
 from iknowwhatyoudid.records import repository as repo
 from iknowwhatyoudid.store import connection as conn
-from iknowwhatyoudid.store import migrate
+from iknowwhatyoudid.store import migrate, schema
 
 HOUR = 3_600_000_000
 
@@ -66,20 +66,24 @@ def test_corrections_survive_a_migration(
     def upgrade(connection: sqlite3.Connection) -> None:
         connection.execute("CREATE TABLE raw_scratch (x INTEGER)")
 
-    extra = migrate.MigrationStep(2, "m0002_test", upgrade)
-    monkeypatch.setattr(migrate, "discover", lambda: (*_original_steps(), extra))
+    # One past whatever the current schema is, rather than a hard-coded number: this
+    # test is about a correction surviving *a* migration, and pinning a version made it
+    # fail every time a real one was added.
+    next_version = schema.SCHEMA_VERSION + 1
+    extra = migrate.MigrationStep(next_version, "m_test", upgrade)
+    real = _original_steps()  # captured before patching, or the lambda would recurse
+    monkeypatch.setattr(migrate, "discover", lambda: (*real, extra))
 
     migrate.migrate(store, store_path)
 
-    assert conn.user_version(store) == 2
+    assert conn.user_version(store) == next_version
     assert corrections_repo.count(store) == before
     assert corrections_repo.get(store, "mail", "a").project == "acme"  # type: ignore[union-attr]
 
 
 def _original_steps() -> tuple[migrate.MigrationStep, ...]:
-    from iknowwhatyoudid.store.migrations import m0001_initial
-
-    return (migrate.MigrationStep(1, "m0001_initial", m0001_initial.upgrade),)
+    """Every real migration, so a synthetic one can be appended after them."""
+    return migrate.discover()
 
 
 def test_corrections_survive_delete_and_rebuild(tmp_path: Path) -> None:

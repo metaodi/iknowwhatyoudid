@@ -73,7 +73,7 @@ def test_validation_contacts_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", forbidden)
 
     report = report_for("valid.toml")
-    assert len(report.statuses) == 4  # type: ignore[attr-defined]
+    assert len(report.statuses) == 5  # type: ignore[attr-defined]
 
 
 def test_an_empty_configuration_is_valid() -> None:

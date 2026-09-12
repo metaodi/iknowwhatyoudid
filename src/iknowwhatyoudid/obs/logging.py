@@ -118,6 +118,16 @@ def ingestion_finished(
     )
 
 
+def http_request(host: str, method: str, status: object) -> None:
+    """One outbound request: the host, the method, and what came back.
+
+    Deliberately nothing else. Not the path, not the query, not a header, not a byte of
+    the body — a token in a query string is still a token once it is in a log file, and
+    `0001` already fixed this class of leak once by keeping record content out.
+    """
+    _log().info("http host=%s method=%s status=%s", host, method, status)
+
+
 def record_rejected(source: str, source_id: str, reason_code: str) -> None:
     """A record could not be stored.
 

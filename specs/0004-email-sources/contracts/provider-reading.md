@@ -67,41 +67,23 @@ nothing already stored is lost.
 
 ---
 
-## Hey — `mail/hey.py`, over `mail/hey_cli.py`
+## Hey — through an exported archive
 
-| | |
-|---|---|
-| **Destination** | None opened by us. The `hey` binary reaches Basecamp on its own account. |
-| **Credential** | **None held.** `hey` keeps its own in the system keyring (file fallback `~/.config/hey-cli/credentials.json`) and refreshes it itself. |
-| **Invoked** | `hey search --from <declared address> --date <range> --json`, paged with `--page` |
-| **Fields taken** | `Message-ID`, `Date`, `From`, `To`, `Cc`, `Subject` from the search result |
-| **Incremental** | Date-bounded: each run searches from the resumption point forward. The store deduplicates by `source_id`. |
-| **Retention** | Nothing cached beyond what becomes a record |
+**Verified and rejected: the official CLI.** `hey search --json` returns a thread's subject, its author and
+a UTC timestamp, and **no recipients and no `Message-ID`** — see [research R1](../research.md) for the
+captured output. Without recipients there is no correspondent attribution and no ad-hoc domain fallback;
+without a `Message-ID` a message read from two sources becomes two records. Every search row also carries a
+`summary` field holding the first ~100 characters of the body, which would make Hey the one provider where
+"no body reaches the store" is a promise the code keeps rather than one the source enforces.
 
-### The allow-list is the mechanism
+Hey mail therefore arrives through **`mail.mbox`**, below. An export carries real headers, so a Hey message
+is the same shape as every other and every rule applies to it unchanged.
 
-`hey` can send mail. `mail/hey_cli.py` is the only module that may invoke it, and it holds a frozen
-allow-list, exactly as `git/binary.py` does:
-
-```text
-ALLOWED   = {"search", "box", "thread", "--version"}
-FORBIDDEN = {"compose", "reply", "event", "setup", "tui", "watch"}   # never reachable
-```
-
-`compose` and `reply` are excluded because they write. `setup` is excluded because it changes the user's
-configuration. `tui` and `watch` are excluded because they do not terminate. Anything not on the list raises
-`HeyCommandNotAllowedError` rather than running — so a future author cannot reach `compose` without editing
-the one file a reviewer checks.
-
-**`thread read` is on the allow-list but is not used**, and that is a deliberate tension worth stating: it
-renders whole threads as Markdown, **bodies included**. It is listed only because reading a thread is
-legitimately read-only. If the connector ever needs it, FR-023 for Hey drops from *cannot receive a body* to
-*must not store one* — a real weakening that must be argued for, not slipped in. See the unverified
-assumption in [research R1](../research.md).
-
-**If `hey` is absent, out of date, or not signed in**: that account reports it by name, with the command to
-fix it, and every other source still ingests (FR-017). The binary is never assumed present — the same
-treatment `git` gets.
+**If a later feature revisits the CLI**, two things make it worth another look: `hey box list` exposes a
+`posting_changes_url` per box (`changes.json?since=…`), which is the shape of an incremental feed and may
+carry more than `search` does; and `hey search --subject` could attribute by subject alone. Either would
+have to be invoked through an allow-list module in the manner of `git/binary.py`, because `hey` can also
+`compose` and `reply`.
 
 ---
 
@@ -133,9 +115,9 @@ and the route to take if a work tenant refuses Graph or if re-authorising Gmail 
 
 | Rule | How it is enforced |
 |---|---|
-| No write of any kind reaches a mail account | `SourceReader` has no write operation to call — Principle II at the type level, from `0002`. For Hey, additionally: the mutating subcommands are not on the allow-list. |
+| No write of any kind reaches a mail account | `SourceReader` has no write operation to call — Principle II at the type level, from `0002` |
 | No message is marked read | Neither scope grants it, and no endpoint used has that effect |
-| No destination other than a configured account | Every request goes through `net/http.py`; an import test asserts nothing else opens a socket, and that `mail/hey_cli.py` is the only module importing `subprocess` |
+| No destination other than a configured account | Every request goes through `net/http.py`; an import test asserts nothing else opens a socket |
 | Rate limits respected | `net/http.py` honours `Retry-After` on 429/503, backs off from 1s, gives up after 5 attempts and fails that account only |
 | A credential never reaches a log | `credentials/redaction.py`, and `net/http.py` never logs a header block |
 | One account's failure never stops another | `0002`'s per-source isolation, unchanged |

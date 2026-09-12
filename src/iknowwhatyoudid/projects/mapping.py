@@ -13,18 +13,36 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 from ..config import findings as f
+from .. import addresses
 from ..config.loader import _POSITION  # the same located-parse-error treatment
 from ..errors import ConfigParseError
 from ..protection import permissions
 from .model import Mapping, MappingEntry, Repository, build_index, normalise
 
 TOP_LEVEL_KEYS = frozenset({"version", "project"})
-ENTRY_KEYS = frozenset({"name", "repositories", "note"})
+ENTRY_KEYS = frozenset({"name", "repositories", "correspondents", "subjects", "note"})
 
 DUPLICATE_PROJECT_NAME = "duplicate-project-name"
+#: A correspondent entry that can never match is a typo, not an intention.
+MALFORMED_CORRESPONDENT = "mapping-correspondent-malformed"
+
+#: An empty subject rule would match every message ever sent.
+EMPTY_SUBJECT_RULE = "mapping-subject-empty"
+
+#: Two projects claiming the same address, domain or subject: genuinely ambiguous, and
+#: the user has to choose. Guessing would put billable work on the wrong line.
+DUPLICATE_CORRESPONDENT = "mapping-correspondent-claimed-twice"
+DUPLICATE_SUBJECT = "mapping-subject-claimed-twice"
+
+#: A rule that matches nothing yet. A warning, never an error: mapping a colleague before
+#: they mail you is entirely reasonable.
+CORRESPONDENT_MATCHES_NOTHING = "mapping-correspondent-matches-nothing"
+SUBJECT_MATCHES_NOTHING = "mapping-subject-matches-nothing"
+
 INVALID_PROJECT_NAME = "invalid-project-name"
 REPOSITORY_MAPPED_TWICE = "repository-mapped-twice"
 REPOSITORY_NOT_FOUND = "repository-not-found"
@@ -174,11 +192,59 @@ def load(path: Path) -> tuple[Mapping, list[f.Finding]]:
             )
             raw_repositories = []
 
+        raw_correspondents = _string_list(
+            table, "correspondents", name, index, line, problems
+        )
+        raw_subjects = _string_list(table, "subjects", name, index, line, problems)
+
+        correspondents: list[str] = []
+        for position, entry in enumerate(raw_correspondents):
+            cleaned = entry.strip()
+            if "@" in cleaned and not addresses.is_valid(cleaned):
+                problems.append(
+                    f.blocking(
+                        MALFORMED_CORRESPONDENT,
+                        f"{entry!r} is not an address or a domain",
+                        source_name=name,
+                        key_path=f"project[{index}].correspondents[{position}]",
+                        line=line,
+                        remedy=(
+                            "It can never match, so it is a typo rather than an "
+                            "intention. Use an address like `anna@acme.example`, or a "
+                            "bare domain like `acme.example`."
+                        ),
+                    )
+                )
+                continue
+            if not cleaned:
+                continue
+            correspondents.append(
+                addresses.normalise(cleaned) if "@" in cleaned else cleaned.casefold()
+            )
+
+        subjects: list[str] = []
+        for position, entry in enumerate(raw_subjects):
+            if not entry.strip():
+                problems.append(
+                    f.blocking(
+                        EMPTY_SUBJECT_RULE,
+                        "an empty subject rule would match every message",
+                        source_name=name,
+                        key_path=f"project[{index}].subjects[{position}]",
+                        line=line,
+                        remedy="Give it the text you actually want to match, or remove it.",
+                    )
+                )
+                continue
+            subjects.append(entry.strip())
+
         note = table.get("note")
         entries.append(
             MappingEntry(
                 project_name=name.strip(),
                 repositories=tuple(str(r) for r in raw_repositories),
+                correspondents=tuple(correspondents),
+                subjects=tuple(subjects),
                 note=str(note) if isinstance(note, str) else None,
                 index=index,
                 line=line,
@@ -186,6 +252,19 @@ def load(path: Path) -> tuple[Mapping, list[f.Finding]]:
         )
 
     problems.extend(_uniqueness(entries))
+    problems.extend(
+        _claimed_twice(
+            entries, lambda e: e.correspondents, DUPLICATE_CORRESPONDENT, "correspondent"
+        )
+    )
+    problems.extend(
+        _claimed_twice(
+            entries,
+            lambda e: tuple(s.casefold() for s in e.subjects),
+            DUPLICATE_SUBJECT,
+            "subject rule",
+        )
+    )
 
     mapping = Mapping(
         path=path,
@@ -196,6 +275,62 @@ def load(path: Path) -> tuple[Mapping, list[f.Finding]]:
         _by_key=build_index(tuple(entries)),
     )
     return mapping, problems
+
+
+def _string_list(
+    table: dict[str, object],
+    key: str,
+    project: str,
+    index: int,
+    line: int | None,
+    problems: list[f.Finding],
+) -> list[str]:
+    raw = table.get(key, [])
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        problems.append(
+            f.blocking(
+                f.SETTING_TYPE_MISMATCH,
+                f"`{key}` must be a list of strings",
+                source_name=project,
+                key_path=f"project[{index}].{key}",
+                line=line,
+            )
+        )
+        return []
+    return [str(item) for item in raw]
+
+
+def _claimed_twice(
+    entries: list[MappingEntry],
+    values: "Callable[[MappingEntry], tuple[str, ...]]",
+    code: str,
+    what: str,
+) -> list[f.Finding]:
+    """Two projects claiming the same rule is ambiguous, and the user must resolve it.
+
+    Blocking rather than first-wins: silently preferring one project would put billable
+    work on the wrong line, and nothing in the output would say so.
+    """
+    problems: list[f.Finding] = []
+    seen: dict[str, str] = {}
+    for entry in entries:
+        for value in values(entry):
+            owner = seen.get(value)
+            if owner is not None and owner != entry.project_name:
+                problems.append(
+                    f.blocking(
+                        code,
+                        f"{what} {value!r} is claimed by both {owner!r} and "
+                        f"{entry.project_name!r}",
+                        source_name=entry.project_name,
+                        key_path=entry.key_path,
+                        line=entry.line,
+                        remedy="Decide which project it belongs to and remove the other.",
+                    )
+                )
+            else:
+                seen.setdefault(value, entry.project_name)
+    return problems
 
 
 def _uniqueness(entries: list[MappingEntry]) -> list[f.Finding]:

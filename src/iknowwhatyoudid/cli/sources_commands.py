@@ -20,7 +20,7 @@ from ..config.location import (
 )
 from ..config.validate import SourceStatus, ValidationReport, validate
 from ..credentials.store import CredentialPresence, CredentialStore
-from ..errors import UsageError
+from ..errors import IkwydError, UsageError
 from ..kinds import registry
 from ..records.model import RunMode
 from ..sources import identity, run
@@ -207,6 +207,65 @@ def sources_validate(
     )
 
 
+#: FR-010 requires these to be distinguishable, because each needs a different action.
+#: Conflating them is the failure this table exists to prevent: "authentication failed"
+#: tells the user none of them, and sending someone to re-authorise when an administrator
+#: has to act is a loop that cannot terminate.
+AUTHORISATION_STATES = (
+    "ready",
+    "credential absent",
+    "credential expired",
+    "administrator approval required",
+    "unreachable",
+    "archive not found",
+)
+
+
+def _authorisation_state(
+    session: ConfigSession, status: SourceStatus
+) -> tuple[str, str, str] | None:
+    """Which of the states this account is in, offline.
+
+    Contacts nothing. A stored token cannot be *validated* without a round trip, so this
+    reports whether one exists; `--live` is what asks the provider.
+    """
+    kind = status.source.kind
+    if not kind.startswith("mail."):
+        return None
+
+    if kind in {"mail.mbox", "mail.hey"}:
+        from ..mail.reader import archive_paths, expand
+
+        missing = [p for p in expand(archive_paths(status.source)) if not p.is_file()]
+        if missing:
+            return (
+                "archive not found",
+                f"{missing[0]} does not exist",
+                "Export again, or correct `paths`.",
+            )
+        return ("ready", "the export is readable", "")
+
+    from ..auth import tokens as token_store
+
+    path = token_store.path_for(session.path)
+    try:
+        stored = token_store.load(path)
+    except IkwydError as exc:
+        return ("credential absent", exc.message, exc.remedy or "")
+
+    if status.name not in stored:
+        return (
+            "credential absent",
+            f"no authorisation stored in {path.name}",
+            f"Run `ikwyd sources authorise {status.name}`.",
+        )
+    return (
+        "ready",
+        f"an authorisation is stored in {path.name}",
+        "",
+    )
+
+
 def sources_check(session: ConfigSession, *, name: str, live: bool) -> Result:
     status = session.report.status_for(name)
     if status is None:
@@ -217,6 +276,14 @@ def sources_check(session: ConfigSession, *, name: str, live: bool) -> Result:
 
     lines = [f"{status.name} — {status.source.kind}", f"  {_readiness_text(status)}"]
     payload: dict[str, Any] = {"source": _source_payload(status), "live": None}
+
+    authorisation = _authorisation_state(session, status)
+    if authorisation is not None:
+        state, explanation, remedy = authorisation
+        lines += ["", f"  {state}: {explanation}"]
+        if remedy:
+            lines.append(f"    → {remedy}")
+        payload["authorisation"] = {"state": state, "detail": explanation}
 
     if live:
         destinations = status.destinations or ("none (local only)",)

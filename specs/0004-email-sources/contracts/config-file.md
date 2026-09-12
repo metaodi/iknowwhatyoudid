@@ -9,7 +9,7 @@ grammar, the location, and the rule that **the tool never writes this file** are
 |---|---|---|---|---|
 | `mail.outlook` | yes | `graph.microsoft.com`, `login.microsoftonline.com` | **available** (0004) | `addresses` (required), `folders.include`, `folders.exclude` |
 | `mail.gmail` | yes | `gmail.googleapis.com`, `oauth2.googleapis.com` | **available** (0004) | `addresses` (required), `labels.include`, `labels.exclude` |
-| `mail.hey` | no — the `hey` CLI holds its own | the `hey` CLI | **available** (0004) | `addresses` (required) |
+| `mail.hey` | no | none | **reads an export** — see below | `addresses` (required), `paths` (required) |
 | `mail.mbox` | no | none | **available** (0004) | `addresses` (required), `paths` (required) |
 
 ### `mail.hey` is corrected, not removed
@@ -18,9 +18,10 @@ grammar, the location, and the rule that **the tool never writes this file** are
 was wrong — Hey offers no IMAP and no POP — but the kind is not dead: 37signals ship an official CLI, and
 Hey is read through it ([research R1](../research.md)).
 
-The name stays, and its declaration is corrected: destination becomes **the `hey` CLI**, and required access
-names the read-only subcommands used. `credential_required` becomes **false**, because the CLI keeps its own
-credential in the system keyring and this tool never holds one.
+The name stays, and its declaration is corrected: Hey mail is read from an **exported archive**, exactly as
+`mail.mbox` is, because the official CLI cannot supply recipients or a `Message-ID`
+([research R1](../research.md), verified against a real account). `credential_required` becomes **false** —
+there is nothing to authorise, only a file to point at.
 
 ## Worked example
 
@@ -43,8 +44,9 @@ addresses  = ["oderbolz@gmail.com"]
 
 [[source]]
 name      = "hey-mail"
-kind      = "mail.hey"
+kind      = "mail.hey"                    # reads an export, as mail.mbox does
 addresses = ["stefan@hey.com"]
+paths     = ["~/exports/hey-2026-09.mbox"]
 
 # An exported archive — a fallback for any provider, and how old mail is brought in.
 [[source]]
@@ -63,9 +65,8 @@ paths     = ["~/exports/hey-2026-09.mbox"]
 | `folders.exclude` / `labels.exclude` | string list | no | Never read. Applied after include. |
 | `paths` | path list | `mail.mbox` only | One or more `.mbox` files. `~` and globs expand, as for `git.local`. |
 
-`mail.hey` needs **no credential entry and no `ikwyd sources authorise`**. Sign in once with `hey` itself;
-this tool asks the CLI for mail and never sees the token. If `hey` is not installed or not signed in, the
-account reports that plainly and every other source still ingests.
+`mail.hey` needs **no credential and no `ikwyd sources authorise`** — export from Hey, point `paths` at the
+file, and ingest. It is `mail.mbox` under a name that says where the mail came from.
 
 `addresses` is validated as syntactically well-formed at configuration time, offline. A malformed address is
 **blocking**: silently ignoring one would mean silently recording nothing.

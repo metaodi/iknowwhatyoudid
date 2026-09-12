@@ -9,28 +9,30 @@ appeared in the first pass's sources; the conclusion it replaces is stated insid
 
 ---
 
-## R1. Hey: read through the official CLI, the way git is read
+## R1. Hey: read from an exported archive (verified)
 
 **Revised.** An earlier pass concluded Hey was unreadable — no IMAP, no POP, no API — and proposed an MBOX
 import in place of User Story 4. That was true of Hey's *protocol* surface and is still true of it. It is no
 longer the whole picture: **37signals ship an official CLI**, `basecamp/hey-cli`, a Go binary with a
 documented command set, structured output, and its own authentication.
 
-**Decision**: read Hey by invoking the `hey` binary, through an **allow-list of read-only subcommands**,
-exactly as `0003` reads git through `git/binary.py`.
+**Decision, after verification**: read Hey from an **exported MBOX archive**. The official CLI cannot
+supply what a message record needs — see *Verified against a real account* below.
 
-**Rationale**: this is the same problem `0003` already solved, and the same solution fits. `hey` is a
-dual-capability tool — it can `compose` and `reply` — just as `git` can `push` and `gc`. Principle II is not
-satisfied by intending to use only the safe half; it is satisfied by making the other half unreachable. One
-module holds the list, every invocation goes through it, and a subcommand not on the list raises rather than
-runs. A reviewer reads one file to know what this tool can do to a mailbox.
+This section records two earlier conclusions and why each was superseded, because the
+reasoning matters more than the answer: the first pass said Hey was unreadable, the second
+said it should be read through the CLI, and the third is what the CLI's own output showed.
 
-There is a real advantage over the other two providers: **the tool never handles a Hey credential at all.**
-`hey` stores its own in the system keyring (file fallback `~/.config/hey-cli/credentials.json`) and
-refreshes it itself. Nothing about Hey goes in `tokens.toml`, there is no OAuth flow to implement, and there
-is no refresh token for us to leak. FR-008 is satisfied by having nothing to keep.
+**The second pass’s rationale, kept because it still holds for the parts it covers.** `hey` is a
+dual-capability tool — it can `compose` and `reply` — just as `git` can `push` and `gc`, so if it is ever
+invoked it must be through an allow-list in one module, exactly as `git/binary.py` does. And it has a real
+advantage over the other two providers: **the tool would never handle a Hey credential at all**, since `hey`
+keeps its own in the system keyring and refreshes it itself.
 
-### Verified from the documentation
+Neither point survives contact with what the CLI actually returns. Both are recorded because they are the
+reasons to reach for the CLI again if a future feature can live with what it offers.
+
+### What the documentation said
 
 | | |
 |---|---|
@@ -41,66 +43,254 @@ is no refresh token for us to leak. FR-008 is satisfied by having nothing to kee
 | Authentication | Browser sign-in via `hey`; credentials in the system keyring, file fallback `~/.config/hey-cli/credentials.json`; refreshed automatically |
 | Boxes | Imbox, The Feed, Set Aside, Reply Later, Paper Trail |
 
-`search --from` is what makes FR-048 plausible here: filtering on the user's own address should return the
-mail they sent, without enumerating an inbox.
+On paper `search --from` made FR-048 plausible: filter on your own address and get the mail you sent,
+without enumerating an inbox. The next section is what happened when that was tried.
 
-### Not verified, and it matters
+### Verified against a real account (T067), and the assumption failed
 
-The published documentation does not describe **the JSON schema of a search result**, and lists **no sent
-box**. Two questions therefore remain open, and neither can be settled from documentation:
+Run by the user on 2026-09-10 against `hey` 1.4.3. The three commands are in the task
+list; what they returned settles the question, and not the way this decision assumed.
 
-1. **Does `hey search --from <your address>` return mail you sent?** The flag exists and the semantics are
-   the obvious ones, but "from" could plausibly mean "sender of a received message" only.
-2. **Does a search result carry recipients, date and subject — or only `topic_id` and a summary?**
+**`hey box list` confirms there is no sent box.** Six boxes exist — Imbox, The Feed, Set
+Aside, Reply Later, Paper Trail, Bubble Up — and none of them holds sent mail. `search`
+is therefore the only route to it, which makes everything below load-bearing.
 
-Question 2 is the one that decides how good this connector can be. If search results carry `From`, `To`,
-`Cc`, `Date` and `Subject`, the connector is clean: it reads exactly the fields the message shape needs and
-never sees a body. If they carry only thread identifiers, the recipients would have to come from
-`thread read` — which renders **an entire thread as Markdown, bodies included**.
+**A `hey search` result does not carry what a message record needs:**
 
-That difference is not cosmetic. For Microsoft 365 and Gmail the scope makes a body *impossible to receive*
-(R5, R2), so FR-023 holds structurally. If Hey required `thread read`, Hey alone would fall back to a weaker
-guarantee: bodies arrive in memory and the connector must be careful not to store them. Careful is worse
-than incapable, and the difference should be visible rather than glossed over.
+| Needed | In a search result? |
+|---|---|
+| Subject | **yes**, at thread level |
+| Sender | **yes**, as `messages[].creator.email_address` |
+| Instant | **yes**, as `created_at` — but **UTC only** (`2026-09-10T12:16:04Z`) |
+| **Recipients (`To`, `Cc`)** | **no. Absent entirely.** |
+| **`Message-ID`** | **no.** Only Hey's own `id` and `topic_id`, which differ per account |
 
-**Decision under uncertainty**: build the connector against `search` and treat "search returns the header
-fields" as an assumption to be **verified before `/speckit-tasks` writes tasks for it**. Verification is
-three commands against a real account, run by hand by the user — no test may do it (constitution).
+Three consequences, in order of severity:
 
-```bash
-hey search --from YOUR-ADDRESS@hey.com --date last_30_days --json | head -c 4000
-hey box list --json
-hey --version
+1. **No recipients means no correspondent attribution.** FR-034 matches a rule against the
+   addresses on a message, and FR-039's ad-hoc fallback names a project after the
+   *recipients'* domain. Neither can run on a Hey record. Subject rules would still work;
+   nothing else would.
+2. **No `Message-ID` breaks identity, and not only across providers.** Research R10 chose
+   it so that one message reaching the store twice becomes one record. Hey has no shared
+   identifier at all — and where a user runs **several accounts inside one Hey**, the same
+   email appears once per account with different ids each time. Verified below. That is
+   double-counted work in a billing record, which is the failure this project exists to
+   avoid.
+3. **The instant loses its offset.** FR-022 requires the original offset preserved, because
+   a message sent at 00:30+0200 belongs to the previous day in UTC and would land on the
+   wrong timesheet line. `Z` timestamps cannot supply it.
+
+**And a fourth finding that was not anticipated at all**: every search result carries a
+`summary` field holding **the first ~100 characters of the message body**:
+
+> `"summary": "Hoi Irène ja ich bin bereits auf dem Verteiler und habe alles bekommen…"`
+
+FR-023 forbids storing any part of a body. This does not breach it — nothing stores
+`summary` — but it changes the *kind* of guarantee available for Hey. For Microsoft 365
+and Gmail the scope makes a body **impossible to receive**. Here a body arrives on every
+result and the connector must discard it. That is a materially weaker promise, and the
+difference belongs in the open rather than smoothed over.
+
+**`thread read` is not the way out** — verified, not assumed. See below: it returns full
+bodies, a timestamp with no zone at all, and still no recipients and no `Message-ID`.
+
+### `--from` does filter — and the multi-account case is the real problem
+
+The verification ran `--from YOUR-ADDRESS@hey.com` — the **placeholder**, not a real
+address — and still returned ten threads. Three distinct creators appear across them:
+
+| `account_id` | contact `id` | address | `contactable_type` |
+|---|---|---|---|
+| 111587 | 2902503 | stefan.oderbolz@hey.com | User |
+| 464571 | 65977909 | stefan.oderbolz@metaodi.ch | User |
+| 111587 | 17006724 | stefan.oderbolz@metaodi.ch | **Person** |
+
+**An earlier reading of this table was wrong** and is corrected here rather than removed,
+because the mistake is instructive. `contactable_type: "Person"` was taken to mean "sent
+by somebody else", and therefore that the result mixed sent with received. It does not.
+The user manages **several accounts inside one Hey**, and `metaodi.ch` is one of theirs;
+`User` is an account holder, `Person` is the *contact record* the same address has when
+seen from a different account. All ten threads are the user's own.
+
+That is evidence the filter **worked**: an ignored `--from` would have returned a mailbox,
+and a mailbox is mostly other people. Ten out of ten authored by the account owner is not
+what no filter looks like. The mechanism is still unexplained — a placeholder address
+should not have matched anything — so this is "behaves as if it filters", not a contract
+to build on. But FR-048 is no longer the blocker here.
+
+`summary: "10 matching threads"` with `meta.pages_fetched: 1` still suggests ten is a
+default page size rather than a complete answer.
+
+### Several accounts in one Hey means the same message arrives twice
+
+The finding that decides this section, and it only appeared because the user pointed out
+the multi-account setup.
+
+| Thread | Message | `created_at` | `account_id` | `contactable_type` |
+|---|---|---|---|---|
+| 1238108147 | 2244055844 | 2026-08-27T21:12:13Z | 464571 | User |
+| 1238108298 | 2244057639 | 2026-08-27T21:14:23Z | 111587 | Person |
+
+Different thread ids, different message ids, two minutes and ten seconds apart — and
+**byte-identical `summary` fields**. It is one email, recorded once as sent from one
+account and once as received into another.
+
+Hey gives these no shared identifier. `id` and `topic_id` differ, and there is no
+`Message-ID`. A connector reading `search` would therefore store one email as **two
+records**, and a timesheet built on them would **count the work twice**.
+
+Research R10 chose the RFC 5322 `Message-ID` precisely so that one message reaching the
+store by two routes collapses into one record. For a single-account user that is a
+nicety; for this user it is load-bearing, and it is the strongest single reason the export
+route wins. An export carries the real header, so the duplicate collapses on its own.
+
+### `thread read --json` was checked too, and closes the last door
+
+`search` returns summaries, so it was fair to ask whether the detailed view carries more.
+It does not. `hey thread read 2111404921 --json` returns, for one message:
+
+```json
+{
+  "id": 2244051207,
+  "created_at": "2026-08-27T21:07",
+  "creator": { "id": 65977909, "name": "Stefan Oderbolz",
+               "email_address": "stefan.oderbolz@metaodi.ch" },
+  "summary": "Hallo Velo!",
+  "body": "Hallo Velo!",
+  "body_state": "hydrated"
+}
 ```
 
-**If the assumption fails** — search returns only identifiers, or `--from` does not mean sent mail — the
-fallback is unchanged from the earlier pass: the **MBOX export**, which Hey still offers and which needs no
-new decision. The `mail.mbox` kind is worth building regardless: it is the fixture format for the entire
-feature and the escape hatch for both other providers.
+| | |
+|---|---|
+| Recipients | **still absent** |
+| `Message-ID` | **still absent** — `id` is Hey's own, and differs per account |
+| Instant | **worse than search**: `2026-08-27T21:07` drops both the seconds and the `Z` |
+| Body | **fully hydrated**, not a preview |
 
-### A third integration pattern, and a note on dependencies
+`id` cannot stand in for a `Message-ID`, and the duplication above is the proof: the same
+email carried ids `2244055844` and `2244057639` in two of the user's accounts. `creator`
+is the sender, which `search` already supplied; what attribution needs is who it went to.
 
-Hey makes this feature span all three ways a source can be reached: an HTTP API we call (Graph, Gmail), a
-file we read (MBOX), and an **external binary we invoke** (Hey). The binary is not a Python dependency and
-does not touch the constitution's dependency-justification rule — it is a tool the user installs, exactly as
-`git` is. It must be treated as `git` is in every other respect: detected, version-checked, absent-tolerated
-with a clear message, and never assumed present.
+So `thread read` would mean receiving **every body in full** in exchange for a field it
+does not have.
+
+### Why no further command will help
+
+Hey models **a conversation, not an envelope**. A posting has a `creator`, a `body` and a
+thread; there is no `To` or `Cc` because RFC 5322 recipients are not part of how Hey
+represents mail. That is a design decision rather than an omission, and it is why this
+section stops looking: the fields are not hidden behind a flag, they are absent from the
+model.
+
+For completeness, `thread read`'s breadcrumbs advertise two further mutating subcommands
+beyond those already catalogued: `hey reply <id>` and `hey forward <id> --to <email>`. Any
+future use of this binary must go through an allow-list for that reason.
+
+### The box listing exposes a change feed
+
+Worth recording even though it does not rescue this connector. Each box in `hey box list`
+carries a per-box cursor:
+
+```text
+"posting_changes_url": ".../boxes/557203/postings/changes.json?since=<ISO-8601>&v=2"
+```
+
+The `since` value differs per box and tracks that box's most recent change — Imbox at
+minutes old, Bubble Up at 2022. That is a versioned delta feed, exactly the shape FR-015
+wants, and the boxes also carry `signed_stream_name` and `updates_channels`, which are
+live-push stream tokens rather than polling.
+
+Hey therefore *has* incremental infrastructure. The CLI does not surface it as a command,
+and none of it supplies a recipient.
+
+### Every search row carries part of a body
+
+Not anticipated, and the strongest argument in this section. Each message in a result has
+a `summary` field holding roughly the first hundred characters of the body. In the
+captured output those hundred characters included a sick note, a child’s name and school
+schedule, a reservation number, and political affiliation.
+
+Nothing stores it, so FR-023 is not breached. What changes is the **kind** of guarantee:
+Microsoft 365 and Gmail are read under scopes that make a body *impossible to receive*,
+while Hey hands one over on every row and asks the client to be careful. Careful is a
+weaker promise than incapable, and for a source the user rated P4 it is not a trade worth
+making.
+
+### Decision, revised again
+
+**Hey is read from an exported MBOX archive** — the conclusion of the first pass, restored
+for reasons the CLI's own output supplies rather than for want of an alternative. An
+export carries real `Message-ID`s, real offsets, and real recipients, so a Hey message
+becomes the same shape as every other and every rule applies to it unchanged.
+
+`mail.mbox` was already built as the feature's foundation, so this costs nothing new.
+
+**The CLI is not discarded.** It stays worth having for two things a future feature can
+use, and the allow-list module is worth writing when either arrives:
+
+- **`hey box list` and `posting_changes_url`** — the box listing exposes a
+  `changes.json?since=…` endpoint per box, which is the shape of an incremental feed and
+  may well carry more than `search` does.
+- **`hey search --subject`** — subject rules alone could attribute Hey mail without
+  recipients, if a coarse answer is ever preferable to an export.
+
+**Alternatives considered and rejected**:
+
+- **`search` plus `thread read`** — recovers recipients at the cost of receiving every
+  body in the thread. Rejected: it makes Hey the only provider where the read-only body
+  guarantee is behavioural rather than structural, for a source the user rated P4.
+- **`search` alone, subject rules only** — no recipients, no ad-hoc domain fallback, so
+  Hey mail would need a fifth fallback rule of its own. Rejected: a provider-specific
+  attribution path is exactly what FR-028 exists to prevent.
+- **Hey's HTTP API directly** (`/advanced_search.json`) — undocumented for third parties,
+  and it would mean holding a credential the CLI already holds properly.
+
+### What the binary is still good for
+
+The `hey` CLI is installed on the developer's machine and works; nothing here says
+otherwise. What it cannot do is supply the fields a *record* needs. Those are different
+claims, and the distinction is worth keeping straight — an earlier draft of the README
+said this tool invokes `hey`, which it does not.
+
+Two uses survive, neither of which needs a recipient, and both belong to a **later
+feature** rather than to `0004`:
+
+- **Telling the user their export is stale.** `hey box list` returns a per-box
+  `changes.json?since=<cursor>`. Comparing that against the newest message already in the
+  store would let `ikwyd sources check` say *"your export covers up to 27 August; Hey has
+  changed since then"*. That is the CLI doing what it is demonstrably good at — knowing
+  what exists — without asking it for fields it does not have.
+- **Subject-only attribution**, if a coarse answer were ever preferable to an export.
+  Rejected for now: it would need a fifth, Hey-specific fallback rule, and a
+  provider-specific attribution path is what FR-028 exists to prevent.
+
+Either would have to go through an allow-list module in the manner of `git/binary.py`.
+`hey` can `compose`, `reply`, `forward`, `event add` and `setup`; its own breadcrumbs
+advertise the first three, so an allow-list is not a hypothetical precaution.
 
 **Alternatives considered**:
 
-- **Calling Hey's HTTP API directly**, which the CLI's `API-COVERAGE.md` shows exists (`/advanced_search.json`
-  and box endpoints). Rejected: it is undocumented for third parties, unversioned as a public contract, and
-  we would have to implement Hey's authentication ourselves — taking on custody of a credential that the
-  official CLI already holds properly. Going through the CLI means the auth is Basecamp's problem.
-- **MBOX only**, as the previous pass concluded. Still the fallback, no longer the plan.
-- **`hey watch`**, which streams new mail as JSON. Interesting for a future live mode, but it observes
-  arrivals rather than answering "what did I send last Tuesday", and a long-running process is a poor fit
-  for a tool that runs and exits.
+- **`search` alone** — no recipients, no `Message-ID`. Rejected: the two fields
+  attribution and identity are built on.
+- **`search` plus `thread read --json`** — verified above. Returns full bodies, a
+  timestamp with neither seconds nor zone, and still no recipients. Rejected: it gives up
+  the structural body guarantee and gains nothing.
+- **Calling Hey's HTTP API directly** (`/advanced_search.json`, per the CLI's
+  `API-COVERAGE.md`). Rejected on two grounds: it is undocumented for third parties and
+  unversioned as a public contract, and we would have to implement Hey's authentication
+  ourselves. It would also not help — the CLI's output *is* that API's output, and the
+  recipients are missing from the model rather than from the CLI.
+- **`hey watch`**, which streams new mail as JSON. It observes arrivals rather than
+  answering "what did I send last Tuesday", and a long-running process is a poor fit for a
+  tool that runs and exits.
 
 Sources: [basecamp/hey-cli](https://github.com/basecamp/hey-cli) ·
 [hey-cli CLI reference](https://raw.githubusercontent.com/basecamp/hey-cli/main/docs/cli.md) ·
 [hey-cli API coverage](https://raw.githubusercontent.com/basecamp/hey-cli/main/API-COVERAGE.md) ·
-[Hey FAQs](https://www.hey.com/faqs/) (no IMAP/POP/API, still accurate)
+[Hey FAQs](https://www.hey.com/faqs/) · plus `hey` 1.4.3 output captured from a real
+account on 2026-09-10, which is what actually decided this.
 
 ---
 

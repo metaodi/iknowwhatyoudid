@@ -136,5 +136,41 @@ class GitCommandNotAllowedError(IkwydError):
     """
 
 
+class MailReadError(IkwydError):
+    """One mail account could not be read.
+
+    Never fatal for a run: the account is named with a reason and the rest are still
+    ingested. An account the user believes is being read but is not produces a gap in a
+    timesheet that nobody checks — the same reasoning as `GitReadError`.
+    """
+
+
+class AuthorisationError(IkwydError):
+    """Authorisation could not be obtained or refreshed.
+
+    The base for the two cases below. Kept distinct from them because "something went
+    wrong signing in" and "your employer must approve this" need different actions from
+    the user, and conflating them tells them neither.
+    """
+
+
+class ConsentRequiredError(AuthorisationError):
+    """The tenant requires an administrator to approve this application.
+
+    Distinct from a missing or expired credential: nothing the user can do alone will
+    fix it, and telling them to re-authorise would send them round a loop that cannot
+    terminate.
+    """
+
+
+class TokenExpiredError(AuthorisationError):
+    """A stored refresh token was rejected.
+
+    Expected rather than exceptional for Google, which expires tokens from apps in
+    testing status after seven days (research R4). Reported with the command that fixes
+    it, and never fatal for the other accounts in the run.
+    """
+
+
 class MappingError(ConfigError):
     """The project mapping file could not be used as given."""

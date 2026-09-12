@@ -191,6 +191,7 @@ def test_every_configured_source_appears_including_skipped(tmp_path: Path) -> No
         "work-repos",
         "work-mail",
         "personal-mail",
+        "hey-archive",
         "recorded-day",
     }
 
