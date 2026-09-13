@@ -17,6 +17,17 @@ MASK = "***"
 _SECRETS: set[str] = set()
 
 #: Below this length a "secret" is too short to redact without mangling ordinary text.
+#:
+#: A **known limit**, stated rather than papered over (0006 research R5). A value shorter
+#: than this is returned by `CredentialStore.value()` and never registered here, so it would
+#: not be masked if it reached output. Lowering the threshold would mask common short
+#: strings across every command — a real cost against an imaginary benefit, since no OAuth
+#: client secret is five characters long.
+#:
+#: The accessor's contract is therefore that registration is **attempted** for every value,
+#: not that it is guaranteed for every value. Pinned by
+#: `tests/unit/test_credential_value.py::test_a_value_too_short_to_mask_is_documented_not_registered`,
+#: which exists so that the limit is a decision somebody made rather than a surprise.
 _MIN_LENGTH = 6
 
 

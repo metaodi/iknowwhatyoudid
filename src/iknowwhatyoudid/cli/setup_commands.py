@@ -14,18 +14,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
 
 from ..config.bootstrap import Outcome, create_all
-from ..config.location import (
-    credentials_path_for,
-    projects_path_for,
-    resolve_config_path,
-    resolve_projects_path,
-)
+from ..config.location import resolve_config_path, resolve_projects_path
 from ..errors import IkwydError, UsageError
 from . import editor
 from .commands import Result
+from .render import human as render_human
 from .render import table
 
 #: What each file is for, shown beside it so a new user knows which to open first.
@@ -146,7 +141,7 @@ def _edit(path: Path, what: str) -> Result:
     # A terminal editor takes over the terminal and does not give it back until the user
     # quits, so a message printed afterwards arrives too late to tell them anything —
     # and reads in the wrong tense when it finally appears.
-    print(f"Opening {path} with {description}.", file=sys.stderr)
+    print(render_human(f"Opening {path} with {description}."), file=sys.stderr)
 
     outcome = editor.launch(command, path)
 
@@ -170,17 +165,11 @@ def _edit(path: Path, what: str) -> Result:
     )
 
 
-def credentials_path(config: str | None) -> Path:
-    """Where the credentials file is, for anyone who wants to open it themselves.
+#: There is deliberately **no** `credentials edit` (FR-027, SC-007a): handing a file of
+#: secrets to whatever `$EDITOR` happens to name is a risk with no matching benefit, and
+#: `test_edit.py::test_no_command_opens_the_credentials_file` walks the parser to keep it
+#: that way. Nor is there a helper returning its path — `init` prints the directory, and
+#: `sources validate` names the file outright when a credential is missing from it, so a
+#: third way to learn the same path would be an abstraction with no caller.
 
-    There is deliberately **no** command that opens it (FR-027): handing a file of secrets
-    to whatever `$EDITOR` happens to name is a risk with no matching benefit.
-    """
-    return credentials_path_for(resolve_config_path(config))
-
-
-def _unused(value: Any) -> None:  # pragma: no cover
-    return None
-
-
-__all__ = ["credentials_path", "edit_projects", "edit_sources", "init"]
+__all__ = ["edit_projects", "edit_sources", "init"]

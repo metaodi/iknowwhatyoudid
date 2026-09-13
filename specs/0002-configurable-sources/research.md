@@ -216,6 +216,17 @@ now, because that is all this feature needs; the keyring decision belongs to `00
 that performs a real OAuth flow and has an actual token to store. The `CredentialStore` boundary takes a
 name and returns presence, so a keyring-backed implementation can replace the file-backed one behind it.
 
+> **Amended by 0006.** The sentence above — "a store that cannot return a value cannot leak one" — was
+> the whole of the guarantee until Google's token endpoint turned out to refuse a Gmail sign-in without
+> a client secret, which something has to be able to read. `CredentialStore` now has exactly one
+> accessor that returns a value, and the guarantee moved rather than disappeared: that accessor is the
+> only way to obtain one, it registers whatever it returns with the redaction filter *before* returning
+> it, and it refuses outright when the file can be read by other accounts — where the presence check,
+> which discloses nothing, still only warns. FR-021 itself is unchanged and still holds: it governs what
+> is *revealed*, and a value handed to the code that sends it to the provider is revealed to nobody.
+> See [0006 spec](../0006-gmail-client-secret/spec.md) and
+> [its credential-file contract](../0006-gmail-client-secret/contracts/credential-file.md).
+
 **Alternatives considered**:
 
 - **`keyring` package now** — a runtime dependency, plus platform backends, for a capability this feature

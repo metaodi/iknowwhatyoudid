@@ -40,6 +40,22 @@ organisation must approve this application* — a different action from "no cred
 FR-010 requires all four states to be told apart; [research R6](../research.md) explains why this one cannot
 be predicted in advance.
 
+> **Corrected by 0006.** This classification shipped **unreachable**. `net/http.py` read the provider's
+> response body and discarded it, raising its error with no detail, so every marker above was matched
+> against the string `"host answered 400"` and none could ever fire. The tests that existed passed
+> because they constructed the error *with* a detail themselves, bypassing the module that was supposed
+> to supply one.
+>
+> It cost a day: `ikwyd sources authorise` failed for Gmail with `authorisation was refused` and nothing
+> else, twice, before anyone looked at the log and found a bare `status=400`. The actual cause —
+> `client_secret is missing.` — had been in the response the whole time.
+>
+> The body is now carried into the error, bounded to 500 characters, and shown verbatim when the tool
+> cannot classify it. The log is unchanged and still records host, method and status only.
+> `tests/unit/test_refusals.py` covers both halves.
+>
+> See [0006's refusals contract](../../0006-gmail-client-secret/contracts/refusals.md).
+
 ---
 
 ## Gmail — `mail/gmail.py`

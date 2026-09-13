@@ -115,6 +115,38 @@ def test_the_credentials_template_holds_no_value_resembling_a_secret() -> None:
                 assert "REPLACE" in str(value), f"credential.{name}.{key} is not a placeholder"
 
 
+def test_no_credential_entry_is_active_in_the_template() -> None:
+    """`0006` — the strictest form of the rule above.
+
+    The check above only inspects entries that TOML actually parses, so a real secret
+    pasted into a commented line would pass it while sitting in a public repository. After
+    `0006` this template's entries are all commented out, which makes the stronger
+    assertion available: the parsed document holds no credential at all.
+
+    It also keeps a fresh `init` honest. An active entry named something the user has not
+    chosen would be reported as an unknown credential by the first `sources validate`.
+    """
+    document = tomllib.loads(read("credentials.toml.template"))
+    assert document == {}, f"the credentials template declares {sorted(document)}"
+
+
+def test_the_credentials_template_explains_the_client_secret() -> None:
+    """`0006` FR-002 — the one value the tool reads must be findable by the person who needs it.
+
+    Asserted on the commented text rather than on parsed data, because the whole point of
+    the previous test is that there is no parsed data. A user who has just been told by
+    `sources authorise` that a client secret is missing opens this file next; if it does not
+    mention one, the message sent them somewhere useless.
+    """
+    text = read("credentials.toml.template")
+
+    assert "client_secret" in text, "the template never mentions the key it now reads"
+    assert "client_id" in text, "the difference from client_id is what people get wrong"
+    assert "PKCE" in text or "no secret" in text, (
+        "the template must say that Microsoft needs none, or the absence looks like an omission"
+    )
+
+
 # --- the files really moved ----------------------------------------------------------------
 
 

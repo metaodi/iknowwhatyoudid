@@ -17,6 +17,7 @@ asks, not only from the consent screen that receives it.
 
 from __future__ import annotations
 
+import sys
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,7 @@ from ..projects import attribution
 from ..records import repository as records_repo
 from ..records import timestamps
 from .commands import Result
+from .render import human as render_human
 from .render import table, when
 
 #: Exit codes, from contracts/cli-commands.md.
@@ -114,6 +116,12 @@ def authorise(
         )
 
     client_id, tenant = _application_for(status.source)
+
+    # Resolved **before** anything interactive begins. A missing secret discovered after
+    # the browser has opened means the user has already signed in, waited, and granted
+    # access before being told the run was never going to work (FR-007).
+    client_secret = _secret_for(session, status.source)
+
     places = endpoints_for(kind, tenant)
     challenge = pkce.new_challenge()
     loopback = pkce.listen()
@@ -136,6 +144,14 @@ def authorise(
         lines.append("Open this in a browser, then return here:")
         lines.append(f"  {url}")
 
+    # Said **now**, on stderr, rather than gathered into the result. Everything above this
+    # point describes what is about to happen — and the command then blocks for up to five
+    # minutes on a browser round-trip. Held back until the end it arrives after the wait is
+    # over, and if the token exchange then fails it is discarded along with the result,
+    # leaving an error with no account of what led to it.
+    for line in lines:
+        print(render_human(line), file=sys.stderr)
+
     received = loopback.wait()
     code = flow.classify_redirect(received, challenge)
 
@@ -147,6 +163,7 @@ def authorise(
         code=code,
         redirect_uri=loopback.redirect_uri,
         challenge=challenge,
+        client_secret=client_secret,
     )
     if not issued.refresh_token:
         raise AuthorisationError(
@@ -168,15 +185,48 @@ def authorise(
         ),
     )
 
-    lines.append("")
-    lines.append(f"Authorised. Token stored in {path} (readable by you alone).")
-    lines.append("Run `ikwyd ingest` to read.")
+    # Only the outcome: the narration above has already been printed as it happened.
     return Result(
         "sources.authorise",
         True,
         session.path,
         {"account": name, "authorised": True, "token_path": str(path)},
-        "\n".join(lines),
+        f"Authorised. Token stored in {path} (readable by you alone).\n"
+        "Run `ikwyd ingest` to read.",
+    )
+
+
+def _secret_for(session: Any, source: Any) -> str | None:
+    """The client secret this account's kind needs, or None where none is wanted.
+
+    Driven by the kind's own declaration rather than by a provider name, so what is sent
+    here and what `sources validate` warns about cannot disagree (0006 research R6).
+
+    A kind that does not send one is never even asked for a value — which is what makes
+    "a secret pasted into a Microsoft entry is not sent" structural rather than a check
+    someone has to remember to write.
+    """
+    from ..kinds import registry
+
+    kind = registry.get(source.kind)
+    if kind is None or not kind.sends_client_secret:
+        return None
+
+    reference = source.credential
+    name = getattr(reference, "name", None) or str(reference or "")
+    secret = session.credentials.value(name, "client_secret") if name else None
+    if secret:
+        return str(secret)
+
+    raise UsageError(
+        f"{source.name} needs a client secret, and none is set",
+        remedy=(
+            f"Add it to {session.credentials.path} under [credential.{name}]:\n"
+            '    client_secret = "..."\n\n'
+            "Google issues one alongside the client ID when you create an OAuth client "
+            "of type 'Desktop app'. It is not the client_id, which is already in your "
+            "configuration."
+        ),
     )
 
 
