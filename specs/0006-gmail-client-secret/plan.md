@@ -163,6 +163,37 @@ a method on a class that is already the right home for it.
 |-----------|------------|-------------------------------------|
 | A general `value(name, key)` accessor rather than a purpose-named one, against "no abstraction for a single anticipated caller" | The user chose it deliberately (clarification Q1) so a second secret later needs no second method | A purpose-named `client_secret(name)` would make the guarantee true by construction, which is why it was recommended. Since it was not chosen, the guarantee moves **inside** the accessor: FR-004 makes registration its own responsibility, FR-001a makes it the only path to a value, and FR-004a tests it with a key this feature never uses. The control is not weaker, it is just explicit rather than structural |
 
+## Post-Implementation Constitution Re-check (T047)
+
+Every gate re-evaluated against the code as shipped, by checking rather than by re-reading
+the table above.
+
+| Gate | Checked how | Result |
+|---|---|---|
+| No new network destination | The host constants in `mail/gmail.py` and `mail/graph.py` are unchanged; `oauth2.googleapis.com` was already declared by `0004` and already in the allow-list. What changed is one field *sent to* it | PASS |
+| No new dependency | `pyproject.toml` is untouched by this feature | PASS |
+| No schema change | `store/migrations/` still ends at `m0003_correspondents.py`; nothing here opens the database | PASS |
+| No widened credential scope | `gmail.metadata` before and after. A client secret authenticates the *application*, not the user, and grants nothing | PASS |
+| No credential in the log | `test_refusals.py::test_the_log_records_only_host_method_and_status` asserts the log line still carries host, method and status and nothing else | PASS |
+| No credential in the store | Nothing in this feature writes to the database | PASS |
+| No credential printed | `test_secret_containment.py` over every command, succeeding and failing, in both output forms | PASS |
+| Tests accompany every behavioural change | The three that did not now do (SC-007). That was the debt this feature set out to settle | PASS |
+
+### Two things found while implementing, worth a reviewer's attention
+
+**`use_config_path` had no caller at all.** `MailReader` exposed it, `tokens.toml` was located
+through it, and nothing in the codebase ever called it — so the token file was looked for beside
+a relative `config.toml`, meaning the working directory, rather than beside the real one. Nobody
+had noticed because reaching that code needs an authorised mail account, and Gmail could not be
+authorised while Microsoft waits on an administrator. Wiring the credential store for the refresh
+required the same mechanism, so both are now set in `sources/run.py::_equip_readers`.
+
+**A third redaction bypass existed, not two.** Research R4 found the two `print` calls in
+`cli/setup_commands.py` and `cli/mail_commands.py`. The AST test found a third in `cli/main.py` —
+the `KeyboardInterrupt` handler. It prints a constant and could never have carried a secret, and
+it is routed through the chokepoint anyway: an exemption granted because *this* line is harmless
+is how the next one gets granted, and the test does not read comments.
+
 ## Post-Design Constitution Re-check
 
 Re-evaluated after Phase 1. No gate changed, and the design surfaced one thing worth recording:

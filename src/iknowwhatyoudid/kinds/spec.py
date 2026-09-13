@@ -149,6 +149,16 @@ class SourceKind:
     summary: str
     settings: tuple[SettingSpec, ...] = ()
     credential_required: bool = False
+    #: Whether this kind's token exchange carries a client secret.
+    #:
+    #: Declared here rather than tested for by provider name in the two places that care —
+    #: what is *sent* (`auth/flow.py`) and what is *warned about* (`config/validate.py`).
+    #: Written twice, the two would eventually disagree, and the disagreement would show up
+    #: as a secret silently not being sent.
+    #:
+    #: It is not derivable from anything else on this class: Microsoft has a token endpoint
+    #: too and needs no secret, so the two properties only look correlated in a sample of two.
+    sends_client_secret: bool = False
     required_access: tuple[str, ...] = ()
     destinations: tuple[str, ...] = ()
     reading: ReadingAvailability = ReadingAvailability.NOT_YET_IMPLEMENTED
@@ -175,6 +185,7 @@ class SourceKind:
             "name": self.name,
             "summary": self.summary,
             "credential_required": self.credential_required,
+            "sends_client_secret": self.sends_client_secret,
             "required_access": list(self.required_access),
             "destinations": list(self.destinations),
             "reading": self.reading.value,

@@ -67,18 +67,29 @@ def exchange_code(
     code: str,
     redirect_uri: str,
     challenge: Challenge,
+    client_secret: str | None = None,
 ) -> Tokens:
-    """Redeem an authorisation code, proving possession with the PKCE verifier."""
+    """Redeem an authorisation code, proving possession with the PKCE verifier.
+
+    `client_secret` defaults to `None` and is omitted entirely when it is, so a caller that
+    does not pass one cannot accidentally send an empty field. Microsoft never passes one:
+    PKCE exists precisely so a public client holds no secret, and sending one there would
+    be a regression rather than a harmless extra
+    ([0006 research R1](../../../specs/0006-gmail-client-secret/research.md)).
+    """
     return _token_request(
         client,
         token_endpoint,
-        {
-            "client_id": client_id,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "code_verifier": challenge.verifier,
-        },
+        _with_secret(
+            {
+                "client_id": client_id,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": challenge.verifier,
+            },
+            client_secret,
+        ),
     )
 
 
@@ -89,6 +100,7 @@ def refresh(
     client_id: str,
     refresh_token: str,
     scopes: tuple[str, ...],
+    client_secret: str | None = None,
 ) -> Tokens:
     """Trade a refresh token for a new access token.
 
@@ -99,13 +111,30 @@ def refresh(
     return _token_request(
         client,
         token_endpoint,
-        {
-            "client_id": client_id,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "scope": " ".join(scopes),
-        },
+        _with_secret(
+            {
+                "client_id": client_id,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "scope": " ".join(scopes),
+            },
+            client_secret,
+        ),
     )
+
+
+def _with_secret(form: dict[str, str], client_secret: str | None) -> dict[str, str]:
+    """Add the client secret, or leave the form exactly as it was.
+
+    One function for both grants so the two cannot drift, and an explicit `None` check
+    rather than a truthiness test: an empty string reaching here would mean the accessor's
+    "every shape of absence is one outcome" rule had been bypassed, and sending
+    `client_secret=` empty produces a different, more confusing provider error than sending
+    nothing at all.
+    """
+    if client_secret is None:
+        return form
+    return {**form, "client_secret": client_secret}
 
 
 def _token_request(client: Client, endpoint: str, form: dict[str, str]) -> Tokens:

@@ -89,6 +89,10 @@ GMAIL = SourceKind(
     summary="mail you sent from a Gmail account",
     settings=(_ADDRESSES, _CLIENT_ID, _TENANT, *_folder_settings("labels")),
     credential_required=True,
+    # Google issues a client secret to an `installed` client and its token endpoint
+    # refuses the exchange without one — observed, not inferred (0006 research R1).
+    # Microsoft's does not: PKCE exists so that a public client holds no secret.
+    sends_client_secret=True,
     required_access=(
         "gmail.metadata — read message headers and labels, never a body or an attachment",
         "IMAP is deliberately not used: its only Gmail scope also grants send and delete",

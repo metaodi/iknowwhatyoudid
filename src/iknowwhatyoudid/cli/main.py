@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from ..errors import EXIT_USAGE, IkwydError
 from ..store.location import resolve_store_path
 from ..sources.state import SqliteSourceStateStore
-from . import commands, mail_commands, projects_commands, setup_commands, sources_commands
+from . import commands, mail_commands, projects_commands, render, setup_commands, sources_commands
 
 
 def _global_options(*, suppress: bool) -> argparse.ArgumentParser:
@@ -385,7 +385,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         commands.emit(failure, as_json=args.json)
         return error.exit_code
     except KeyboardInterrupt:  # pragma: no cover
-        print("interrupted", file=sys.stderr)
+        # Through the chokepoint like everything else. The string is a constant and could
+        # not carry a secret — but an exemption granted because *this* line is harmless is
+        # how the next one gets granted too, and the boundary test does not read comments.
+        print(render.human("interrupted"), file=sys.stderr)
         return EXIT_USAGE
 
     return commands.emit(result, as_json=args.json)

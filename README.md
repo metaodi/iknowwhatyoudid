@@ -22,7 +22,8 @@ Requires Python 3.12. `uv` provisions it.
 ## What works today
 
 Features `0001` (the local store), `0002` (configurable sources), `0003` (git and
-projects), `0004` (mail) and `0005` (`init` and `edit`) are implemented: the database
+projects), `0004` (mail), `0005` (`init` and `edit`) and `0006` (the Gmail client secret)
+are implemented: the database
 everything reads and writes, the normalized record shape, migrations, corrections, the
 configuration file and the commands that create and open it, validation, the source-kind
 registry, credential handling, and the CLI around all of it.
@@ -80,13 +81,34 @@ only reads.
 The configuration file holds **no secrets** — credentials are referenced by name, with
 values in `credentials.toml` beside it. Mail accounts additionally need a `client_id`,
 which is *not* a secret and lives in the configuration: it appears in every sign-in URL.
-The one secret this tool stores is a refresh token, written to `tokens.toml` by
-`ikwyd sources authorise`, created readable by you alone and checked on every read. Which repositories belong to which project goes
-in `projects.toml`, also beside it. `credentials.toml` is created readable by you alone,
-holding placeholders and nothing else; there is deliberately no `credentials edit`, since
-handing a file of secrets to whatever `$EDITOR` happens to name buys nothing. Apart from
-`init` creating a file that is absent, the tool never writes any of the three — what you
-wrote comes back byte for byte, comments and ordering intact.
+Which repositories belong to which project goes in `projects.toml`, also beside it.
+
+**Gmail additionally needs a client secret.** Google issues one alongside the client ID for
+a "Desktop app" OAuth client, and its token endpoint refuses to sign you in without it:
+
+```toml
+# credentials.toml
+[credential.your-gmail-credential]
+client_secret = "GOCSPX-..."
+```
+
+**Microsoft 365 needs none, and is never sent one.** Its sign-in uses PKCE, which exists so
+that a desktop application does not have to hold a secret at all. The entry must still
+exist, because a source names it and `sources validate` checks the name is known — but it
+stays empty. A secret placed there is ignored, and `sources validate` says so rather than
+leaving you wondering why nothing changed.
+
+Two files hold secrets, and both are created readable by you alone and checked on every
+read: `credentials.toml`, which you write, and `tokens.toml`, which `ikwyd sources
+authorise` writes for you. There is deliberately no `credentials edit`, since handing a
+file of secrets to whatever `$EDITOR` happens to name buys nothing. Apart from `init`
+creating a file that is absent, the tool never writes any of the three configuration files
+— what you wrote comes back byte for byte, comments and ordering intact.
+
+A secret is read only to be sent to the provider's token endpoint. It is never printed,
+never written to the database, and never logged: the log records the host, method and
+status of a request and nothing else, and every stream the tool writes passes through one
+redaction filter that masks any value it knows to be a credential.
 
 Everything is recorded against a **project**. Where you have not said which project a
 repository belongs to, the repository's own name is used and marked `(ad hoc)`, so an

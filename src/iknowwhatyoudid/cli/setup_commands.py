@@ -20,6 +20,7 @@ from ..config.location import resolve_config_path, resolve_projects_path
 from ..errors import IkwydError, UsageError
 from . import editor
 from .commands import Result
+from .render import human as render_human
 from .render import table
 
 #: What each file is for, shown beside it so a new user knows which to open first.
@@ -140,7 +141,7 @@ def _edit(path: Path, what: str) -> Result:
     # A terminal editor takes over the terminal and does not give it back until the user
     # quits, so a message printed afterwards arrives too late to tell them anything —
     # and reads in the wrong tense when it finally appears.
-    print(f"Opening {path} with {description}.", file=sys.stderr)
+    print(render_human(f"Opening {path} with {description}."), file=sys.stderr)
 
     outcome = editor.launch(command, path)
 

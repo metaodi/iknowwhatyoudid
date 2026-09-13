@@ -43,6 +43,8 @@ FUTURE_DATETIME = "future-datetime"
 CREDENTIAL_MISSING = "credential-missing"
 CREDENTIAL_UNREADABLE = "credential-unreadable"
 CREDENTIAL_NOT_REQUIRED = "credential-not-required"
+#: A client secret sits in an entry whose kind never sends one (0006 FR-006a).
+CREDENTIAL_SECRET_UNUSED = "credential-secret-unused"
 INLINE_SECRET = "inline-secret"
 FILE_PERMISSIONS = "file-permissions"
 FILE_PERMISSIONS_UNVERIFIED = "file-permissions-unverified"

@@ -69,17 +69,45 @@ def test_a_present_credential_makes_the_source_ready(
     assert status.readiness is f.Readiness.READY
 
 
-def test_the_store_reports_presence_and_never_returns_a_value(tmp_path: Path) -> None:
-    """FR-021 — presence is the whole requirement; a store that cannot return a value
-    cannot leak one."""
+def test_the_store_reports_presence_without_revealing_the_value(tmp_path: Path) -> None:
+    """FR-021, as amended by `0006`.
+
+    `0002` implemented this requirement by giving the store **no** method that returns a
+    value at all, and this test asserted exactly that. `0006` had to open one: Google's
+    token endpoint refuses a Gmail sign-in without a client secret, so something has to be
+    able to read it ([0006 spec](../../specs/0006-gmail-client-secret/spec.md)).
+
+    FR-021 itself is unchanged and still holds — it is about what is *revealed*, and a
+    value handed to the code that sends it to the provider is not revealed to anyone. What
+    changed is where the guarantee comes from: it used to be that no value could be
+    obtained, and it is now that exactly one accessor can obtain one, and registers
+    whatever it returns for redaction before returning it.
+
+    So this test keeps the surviving half — presence answers disclose nothing, and the
+    opening is exactly one member wide — while `tests/unit/test_credential_value.py` owns
+    the behaviour of the accessor itself.
+    """
     path = tmp_path / "credentials.toml"
     path.write_text(f'[credential.a]\ntoken = "{SENTINEL}"\n', encoding="utf-8")
     store = CredentialStore(path)
 
     assert store.status("a").presence is CredentialPresence.PRESENT
     assert store.status("b").presence is CredentialPresence.ABSENT
-    assert not hasattr(store, "value")
-    assert not hasattr(store, "get_secret")
+
+    # A presence answer must not carry the value, however it is rendered.
+    assert SENTINEL not in repr(store.status("a"))
+    assert SENTINEL not in repr(store)
+    assert SENTINEL not in " ".join(store.known_names())
+
+    # And the opening that `0006` cut is still exactly one member wide.
+    ways_in = [
+        name
+        for name in dir(store)
+        if name in {"value", "get_secret", "as_dict", "secrets", "values", "entry"}
+    ]
+    assert ways_in == ["value"], (
+        f"the credential store gained another way to obtain a value: {ways_in}"
+    )
 
 
 def test_an_unreadable_credential_store_is_distinguished_from_absent(

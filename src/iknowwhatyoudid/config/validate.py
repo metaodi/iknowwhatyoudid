@@ -235,7 +235,56 @@ def _check_credential(
                 remedy="Fix or remove the credentials file.",
             )
         )
+    else:
+        problems.extend(_check_unused_secret(source, kind, store))
+
     return status, problems
+
+
+def _check_unused_secret(
+    source: ConfiguredSource, kind: SourceKind, store: CredentialStore
+) -> list[f.Finding]:
+    """FR-006a — a client secret sitting where it will never be sent.
+
+    A **warning**, never an error. The source signs in exactly as it should; what is wrong
+    is the user's picture of what they just did, and that is repaired by saying so once
+    rather than by refusing to run.
+
+    Driven by the kind's own `sends_client_secret` declaration, so this and the code that
+    actually sends one cannot disagree (0006 research R6).
+
+    Asked through the same accessor as everything else, which means a world-readable file
+    refuses here too — correctly: this function would otherwise be a way to learn whether a
+    value exists in a file the tool has just said others can read.
+    """
+    if kind.sends_client_secret or source.credential is None:
+        return []
+
+    from ..credentials.store import CredentialFileExposedError
+
+    try:
+        secret = store.value(source.credential.name, "client_secret")
+    except CredentialFileExposedError:
+        # Already reported by `open_config`'s permission warning. Saying it twice, from a
+        # check the user did not ask for, would bury the finding that matters.
+        return []
+
+    if not secret:
+        return []
+
+    return [
+        f.warning(
+            f.CREDENTIAL_SECRET_UNUSED,
+            f"`{kind.name}` never sends a client secret, but "
+            f"[credential.{source.credential.name}] holds one",
+            source_name=source.name,
+            key_path=f"credential.{source.credential.name}.client_secret",
+            remedy=(
+                "The value is ignored. Microsoft accounts sign in with PKCE and need no "
+                "secret; you can remove it."
+            ),
+        )
+    ]
 
 
 def _readiness(

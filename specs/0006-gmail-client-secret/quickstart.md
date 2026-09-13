@@ -37,7 +37,7 @@ obtain a value that is not yet maskable. Same shape as `0005`'s permissions-befo
 ## Scenario 2 — a file others can read (US2, FR-003, SC-011)
 
 ```bash
-uv run pytest tests/unit/test_credential_value.py -k permission -v
+uv run pytest tests/unit/test_credential_value.py -k "others_can_read or permission" -v
 ```
 
 | Given | Expected |
@@ -139,7 +139,7 @@ against the old behaviour, which printed everything at the end and discarded it 
 ## Scenario 9 — a secret that will never be sent (FR-006a, SC-010)
 
 ```bash
-uv run pytest tests/integration/test_gmail_authorise.py -k unused -v
+uv run pytest tests/integration/test_gmail_authorise.py -k "unused or never_sends or not_warned" -v
 ```
 
 A `client_secret` in a Microsoft entry produces exactly one warning naming the entry, and the
@@ -161,6 +161,21 @@ exercises the refresh path, which is the one thing [research R1](./research.md) 
 in advance.
 
 ---
+
+## Selector check (T045)
+
+Every `-k` above was run and the tests it selects compared against what its scenario claims.
+Two were wrong on the first pass, both in the same way `0005` got wrong three times: the word
+chosen appeared in one test name and not in its sibling, so the scenario ran half of itself
+and reported success.
+
+| Scenario | Was | Selected | Now |
+|---|---|---|---|
+| 2 — a file others can read | `-k permission` | 1 of 3 — only the `UNVERIFIED` case, neither of the two rows the scenario describes | `-k "others_can_read or permission"` |
+| 9 — a secret that will never be sent | `-k unused` | 1 of 2 — the readiness half, not the warning itself | `-k "unused or never_sends or not_warned"` |
+
+Scenarios 1, 3, 5 and 6 run whole files and need no selector. Scenarios 4, 7 and 8 were
+checked and select exactly what they describe.
 
 ## Known limits at the end of this feature
 

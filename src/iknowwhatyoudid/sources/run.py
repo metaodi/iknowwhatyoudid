@@ -11,6 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any
 
 from ..config.findings import Readiness
 from ..config.validate import SourceStatus, ValidationReport
@@ -203,6 +204,31 @@ def _ingest_one(
     return outcome
 
 
+def _equip_readers(report: ValidationReport, credentials: Any | None) -> None:
+    """Hand each reader what only the caller knows: where the configuration is, and how to
+    resolve a credential name.
+
+    Both are **setters** rather than constructor arguments because readers are module-level
+    singletons declared on their `SourceKind` — `kinds/mail.py` holds one `MailReader` for
+    all four mail kinds. Nothing here builds them, so nothing here can pass them anything.
+
+    `use_config_path` had **no caller at all** before `0006`, which meant `tokens.toml` was
+    looked for beside a relative `config.toml` — the working directory — rather than beside
+    the real one. Nobody had noticed because reaching that code needs an authorised mail
+    account, and Gmail could not be authorised while Microsoft needs an administrator.
+    """
+    for status in report.statuses:
+        reader = status.kind.reader if status.kind else None
+        if reader is None:
+            continue
+        equip_path = getattr(reader, "use_config_path", None)
+        if callable(equip_path):
+            equip_path(report.configuration.path)
+        equip_credentials = getattr(reader, "use_credentials", None)
+        if callable(equip_credentials) and credentials is not None:
+            equip_credentials(credentials)
+
+
 def ingest(
     report: ValidationReport,
     store: SourceStateStore,
@@ -211,12 +237,15 @@ def ingest(
     only: str | None = None,
     mode: RunMode = RunMode.INCREMENTAL,
     dry_run: bool = False,
+    credentials: Any | None = None,
 ) -> RunReport:
     """Run across every configured source, or one named source (FR-042).
 
     ``mode`` defaults to INCREMENTAL — the safe direction. Nothing is ever withdrawn
     unless a caller deliberately asks for a sweep and the reader reports what it saw.
     """
+    _equip_readers(report, credentials)
+
     outcomes: list[Outcome] = []
 
     for status in report.statuses:

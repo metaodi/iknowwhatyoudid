@@ -406,6 +406,7 @@ def ingest(
         only=only,
         mode=mode,
         dry_run=dry_run,
+        credentials=session.credentials,
     )
 
     # Every recorded activity must land on a project (FR-025). Attribution runs here

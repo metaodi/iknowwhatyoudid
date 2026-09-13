@@ -83,9 +83,19 @@ class MailReader:
         self._resumption: dict[str, str | None] = {}
         #: Where `config.toml` is, so `tokens.toml` can be found beside it.
         self._config_path: Path | None = None
+        #: The credential store, handed in rather than built here (0006 research R3).
+        #:
+        #: The reader needs *a* way to turn a credential name into a client secret. Being
+        #: handed one keeps the number of places that construct a credential store at one,
+        #: which is what makes "the accessor is the only way to obtain a value" checkable
+        #: rather than aspirational.
+        self._credentials: Any | None = None
 
     def use_config_path(self, path: Path) -> None:
         self._config_path = path
+
+    def use_credentials(self, store: Any) -> None:
+        self._credentials = store
 
     def drain_skips(self) -> Sequence[str]:
         """Everything skipped since the last call (FR-017, FR-020, SC-011)."""
@@ -212,6 +222,7 @@ class MailReader:
                 client_id=stored.client_id,
                 refresh_token=stored.refresh_token,
                 scopes=api.SCOPES,
+                client_secret=self._secret_for(source),
             )
         except AuthorisationError as exc:
             raise MailReadError(exc.message, remedy=exc.remedy) from exc
@@ -265,6 +276,28 @@ class MailReader:
                     self._skipped.append(f"{source.name}: {rejected}")
                 continue
             yield msg.to_record(message)
+
+    def _secret_for(self, source: ConfiguredSource) -> str | None:
+        """The client secret for this account's refresh, or None where none is wanted.
+
+        Asks the kind rather than the provider name, exactly as `sources authorise` does,
+        so the sign-in and the refresh cannot end up disagreeing about what to send.
+
+        Returns None when no store was injected: a refresh that omits a secret Google wants
+        fails with Google's own words, which is a better outcome than a crash here and is
+        exactly what `0006` made visible.
+        """
+        from ..kinds import registry
+
+        kind = registry.get(source.kind)
+        if kind is None or not kind.sends_client_secret or self._credentials is None:
+            return None
+        reference = source.credential
+        name = getattr(reference, "name", None) or str(reference or "")
+        if not name:
+            return None
+        found = self._credentials.value(name, "client_secret")
+        return str(found) if found else None
 
     def _token_for(self, source: ConfiguredSource) -> token_store.StoredToken:
         path = token_store.path_for(self._config_path or Path("config.toml"))

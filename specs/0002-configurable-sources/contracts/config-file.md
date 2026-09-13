@@ -145,3 +145,15 @@ Separate from this file, same permission check (D3).
 
 This feature resolves a credential to `PRESENT`, `ABSENT`, or `UNREADABLE` and **never reads its value**
 (D6). A keyring-backed store may replace the file in `0004`, behind the same boundary.
+
+> **Amended by 0006.** One value is now read: `client_secret`, and only for source kinds that declare
+> they send one — today that is `mail.gmail` alone, because Google's token endpoint refuses the exchange
+> without it. Everything else in this section stands: the presence check is unchanged, every other key
+> stays unread, and `config.toml` still holds no secret at all.
+>
+> The two questions are now guarded differently, deliberately. Asking **whether a name is present**
+> discloses nothing, so a file other accounts can read is still only a warning and `sources list` keeps
+> working. Asking **what a value is** refuses outright on the same file. A client secret placed in an
+> entry whose kind never sends one is warned about and ignored, never sent.
+>
+> See [0006's credential-file contract](../../0006-gmail-client-secret/contracts/credential-file.md).
